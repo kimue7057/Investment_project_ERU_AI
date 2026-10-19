@@ -1,0 +1,178 @@
+{
+  "collected_verified_at": "2026-10-19T08:50:46.681101+00:00",
+  "source": "https://api.upbit.com/v1/candles/days",
+  "assets": {
+    "A": {
+      "rows": 1592,
+      "first": "2022-03-28",
+      "last": "2026-08-05",
+      "game_rows": 1368,
+      "warmup_rows": 224,
+      "sha256": "87612157f8f636f6341478df1b9d6469cc882ccd68329e34fb61a54f4afed77c",
+      "issues": [],
+      "passed": true
+    },
+    "B": {
+      "rows": 1592,
+      "first": "2022-03-28",
+      "last": "2026-08-05",
+      "game_rows": 1368,
+      "warmup_rows": 224,
+      "sha256": "210afd78f53caaf09ec53ca40d77afc3200c7cce51b1f3825fadd5652026853e",
+      "issues": [],
+      "passed": true
+    },
+    "C": {
+      "rows": 1592,
+      "first": "2022-03-28",
+      "last": "2026-08-05",
+      "game_rows": 1368,
+      "warmup_rows": 224,
+      "sha256": "d15f674f44e36857cd97ffd750f06a68174557003d42dc474466bae5199a54ff",
+      "issues": [],
+      "passed": true
+    },
+    "D": {
+      "rows": 1592,
+      "first": "2022-03-28",
+      "last": "2026-08-05",
+      "game_rows": 1368,
+      "warmup_rows": 224,
+      "sha256": "48835818b1ad2d19cfffc1762a326f58d359422a59ba724933a279d6e51a80d8",
+      "issues": [],
+      "passed": true
+    }
+  },
+  "note": "Internal local evaluation. No market datasets committed or distributed.",
+  "passed": true,
+  "raw_pages": [
+    {
+      "file": "data\\raw\\upbit\\A\\page_01.json",
+      "sha256": "a9b2c7d743b2239f87065aed8d3ab27dcfb092620427f978cb5f2e96a81681b6"
+    },
+    {
+      "file": "data\\raw\\upbit\\A\\page_02.json",
+      "sha256": "544940dcee992165d59092f656951f6659ecab0527aa4346d48ea596874bf3bc"
+    },
+    {
+      "file": "data\\raw\\upbit\\A\\page_03.json",
+      "sha256": "c559fd9d68573094821f2090f638ecbf2a99d830ae2afcf07911bd6e0a562278"
+    },
+    {
+      "file": "data\\raw\\upbit\\A\\page_04.json",
+      "sha256": "0ec0ff7e275097b31b2b547368c4e4c3bb446afde28f257dff959d4770d0db93"
+    },
+    {
+      "file": "data\\raw\\upbit\\A\\page_05.json",
+      "sha256": "208c8410d74d25697d1621f6beaba46b414f57bc9b794854668994a8690a5464"
+    },
+    {
+      "file": "data\\raw\\upbit\\A\\page_06.json",
+      "sha256": "ed19e9e06cc3ca52795c96786536f4ff472ec2552dbd00cd0d7e82d2aa04f2a3"
+    },
+    {
+      "file": "data\\raw\\upbit\\A\\page_07.json",
+      "sha256": "82cb5dcfa2421e2e61897649f6a9532d6f9f9fb6ae53ae22727002a83ed22b49"
+    },
+    {
+      "file": "data\\raw\\upbit\\A\\page_08.json",
+      "sha256": "af883f808cfc96ceb594e543483b808c5c04b7346b149790cf14f4321de1ea76"
+    },
+    {
+      "file": "data\\raw\\upbit\\B\\page_01.json",
+      "sha256": "77a6697aaf1dd1bdf0a68196853b367b38d6b3abbff3473ced3700572ddf0a44"
+    },
+    {
+      "file": "data\\raw\\upbit\\B\\page_02.json",
+      "sha256": "d807e58c1c853099c4867cbc568f8e26150447bfcb9c9322418fbdc74bdc9abc"
+    },
+    {
+      "file": "data\\raw\\upbit\\B\\page_03.json",
+      "sha256": "cb8b2104573902a8f61b20308b8983fc24a7adcb101c0b58c64b0189349377ac"
+    },
+    {
+      "file": "data\\raw\\upbit\\B\\page_04.json",
+      "sha256": "f09019fc8327ffc31c21e891e230706543a9e9fa7e7421afb507db5f76b54128"
+    },
+    {
+      "file": "data\\raw\\upbit\\B\\page_05.json",
+      "sha256": "5086d9da49d153d46671a8b8bc7a917693aab2c2230e23884b9aea3154768eff"
+    },
+    {
+      "file": "data\\raw\\upbit\\B\\page_06.json",
+      "sha256": "1ca0f80ca06ed1c93ce5105359913939fb71444a8bfb8b6a16ab630edfef5152"
+    },
+    {
+      "file": "data\\raw\\upbit\\B\\page_07.json",
+      "sha256": "3c03986cde9c670e5d19319592d69cb95fc65a1647312ef25c3582c84e1764cc"
+    },
+    {
+      "file": "data\\raw\\upbit\\B\\page_08.json",
+      "sha256": "979781b0d2b817eed9ee0b86727e56afd5174bd810adf0f37af2e07096b19051"
+    },
+    {
+      "file": "data\\raw\\upbit\\C\\page_01.json",
+      "sha256": "c7352165bed7c763ae0123ae37bca53a7b9999b124e012e2bd944a527f25f62e"
+    },
+    {
+      "file": "data\\raw\\upbit\\C\\page_02.json",
+      "sha256": "f41fab19ab6e207f8088d9b358184a1e2ed1bb119470ae5be4e3da417c4e8287"
+    },
+    {
+      "file": "data\\raw\\upbit\\C\\page_03.json",
+      "sha256": "c69d3a1a55605f0a00d8db61a2ed6da34f07238aa0b03b395eff387d15e2955f"
+    },
+    {
+      "file": "data\\raw\\upbit\\C\\page_04.json",
+      "sha256": "6494ae686498ebcc7584b883c231dd4434c9be14534bd77d45745e415680c234"
+    },
+    {
+      "file": "data\\raw\\upbit\\C\\page_05.json",
+      "sha256": "13d8290c691aa523ec47b0e264822ac119beab9f1db9349999dd90f6ddf74e2a"
+    },
+    {
+      "file": "data\\raw\\upbit\\C\\page_06.json",
+      "sha256": "ab884717d9df92e537159072d5c936babaa4cd7e74b39efad9c08efe0c1719b4"
+    },
+    {
+      "file": "data\\raw\\upbit\\C\\page_07.json",
+      "sha256": "f854dfb38443f5f43c8afa63fcf4f81ead635b0fbf357c920a10a0a563cf41e8"
+    },
+    {
+      "file": "data\\raw\\upbit\\C\\page_08.json",
+      "sha256": "fc52e8ecc5da1dcc2d9b2c25c2659f93afb0c31a0fc4c0d9def251aabedf86db"
+    },
+    {
+      "file": "data\\raw\\upbit\\D\\page_01.json",
+      "sha256": "5014cb98ee7fccf9f9df0ea677dd201da5271de78db10e9715927e4225360f91"
+    },
+    {
+      "file": "data\\raw\\upbit\\D\\page_02.json",
+      "sha256": "a1294917e32a6a0fbc644ee5bc04baf8e787f6bf5f0cfc75f21497e65a269013"
+    },
+    {
+      "file": "data\\raw\\upbit\\D\\page_03.json",
+      "sha256": "f7aa03030cc348552cf431d277f758ca4be6676d12f92e4b3427b37d0cd6b756"
+    },
+    {
+      "file": "data\\raw\\upbit\\D\\page_04.json",
+      "sha256": "8cef32f310fb799fd93402acf32b1917d65531d7f60422e2b2ee20054501b76e"
+    },
+    {
+      "file": "data\\raw\\upbit\\D\\page_05.json",
+      "sha256": "abf5e966b3f2bc577b7fd9c49de27f11c648775a466baddb13edafaf10cad92a"
+    },
+    {
+      "file": "data\\raw\\upbit\\D\\page_06.json",
+      "sha256": "1a797de01dd02da7ad547dd2944edec157f2fb2af13604ce4d22619caf31ad46"
+    },
+    {
+      "file": "data\\raw\\upbit\\D\\page_07.json",
+      "sha256": "199d20ec206652cb9ad81f032ef33e82ab71871eb21203182e8f327603e51690"
+    },
+    {
+      "file": "data\\raw\\upbit\\D\\page_08.json",
+      "sha256": "57043eca7573aee20a0ffc8a17d68e64fa67551e00c73f1e2b122f82627f737a"
+    }
+  ]
+}
