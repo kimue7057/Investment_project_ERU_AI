@@ -1,0 +1,163 @@
+{
+  "package": "ERU AI historical simulator data and as-of prototype V2",
+  "created_on": "2026-10-19",
+  "actual_market_ohlcv_rows": 0,
+  "curated_source_events": 15,
+  "actual_historical_issuer_quarterly_rows": 4,
+  "actual_historical_etf_listing_fact_rows": 2,
+  "tests_passed": 10,
+  "price_download_status": "BLOCKED_BY_RUNTIME_NETWORK_DNS",
+  "figma_design": "https://www.figma.com/design/8hP2vt56sOezV4kF0mAdzI",
+  "file_manifest": [
+    {
+      "path": "README.md",
+      "bytes": 7625,
+      "sha256": "c87b885a42b2896b4fac6a472795798e20609c3a0c7b73f736b03a995f407310"
+    },
+    {
+      "path": "config/asset_map_PRIVATE.json",
+      "bytes": 1290,
+      "sha256": "090d4cfe5621eecfe2639579c94b5eab40445ddb7c633ac2fbc35878c0ee4aa8"
+    },
+    {
+      "path": "config/game.json",
+      "bytes": 514,
+      "sha256": "2a70ca4fdac5a3ba4337d0fef846743668e9bbc8dc2dd628a0784c57beca6947"
+    },
+    {
+      "path": "data/fundamentals/E_candidate_historical_releases_PRIVATE.csv",
+      "bytes": 1040,
+      "sha256": "126c8256a4bfa05b9e968b6bc21236c76244103896c6ca84cd09561e1bf1627b"
+    },
+    {
+      "path": "data/fundamentals/FG_candidate_listing_facts_PRIVATE.csv",
+      "bytes": 536,
+      "sha256": "99ee994343806aa2e0d748634b3d385e87b65516719697d5325847496e327978"
+    },
+    {
+      "path": "data/normalized/EMPTY_UNTIL_ACTUAL_DOWNLOAD.txt",
+      "bytes": 185,
+      "sha256": "2f843591d79ba389d7c4bc2fd891139ff525ca2db14549788204fc52ae47fd22"
+    },
+    {
+      "path": "data/raw/equities/EMPTY_UNTIL_ACTUAL_DOWNLOAD.txt",
+      "bytes": 185,
+      "sha256": "2f843591d79ba389d7c4bc2fd891139ff525ca2db14549788204fc52ae47fd22"
+    },
+    {
+      "path": "data/raw/upbit/EMPTY_UNTIL_ACTUAL_DOWNLOAD.txt",
+      "bytes": 185,
+      "sha256": "2f843591d79ba389d7c4bc2fd891139ff525ca2db14549788204fc52ae47fd22"
+    },
+    {
+      "path": "reports/asof_snapshot_check.log",
+      "bytes": 847,
+      "sha256": "8e3cc1abcaefe6ed5cce3ffa12b153895585ca3ecc275dc6a75f1be49203dfbf"
+    },
+    {
+      "path": "reports/network_access.json",
+      "bytes": 742,
+      "sha256": "30064b11e6eb55f801edfc568aac7ce89c4d93ea1d91ef0b9f6b28f2b58fa2e1"
+    },
+    {
+      "path": "reports/price_data_qa.json",
+      "bytes": 1230,
+      "sha256": "3b686a27a73cfaf63c0484bc15f7cf715c7d5c53f5e22561bebbc32882e4dae6"
+    },
+    {
+      "path": "schemas/document_event_schema.json",
+      "bytes": 1034,
+      "sha256": "4709c4bb32fdbc81d68ae014898cbfe1720e732ce2b116990fa0e74bfd24f8e5"
+    },
+    {
+      "path": "schemas/market_data_schema.json",
+      "bytes": 871,
+      "sha256": "c0a25416742aa38c5ee68707461b682986a8f4650dc99c71e8ebd56860ba6682"
+    },
+    {
+      "path": "scripts/RUN_WINDOWS.bat",
+      "bytes": 218,
+      "sha256": "94bed7e21f1128a25cee0e8ee01e8b5c3c3abc7be19859c16626e25f0a713555"
+    },
+    {
+      "path": "scripts/build_actual_facts.py",
+      "bytes": 3031,
+      "sha256": "e5317a9fa3a9c1bb5427b4f28c05fe5e0e2a414adba2dbc7b6c4978a1627f34c"
+    },
+    {
+      "path": "scripts/build_registry.py",
+      "bytes": 9514,
+      "sha256": "f444d5373a148890e661f22bb26f4051712f46cf4ebe843e14c86874325b53c1"
+    },
+    {
+      "path": "scripts/collect_kr_stocks.py",
+      "bytes": 4502,
+      "sha256": "622ef495e54657868f83409ea4a3097282035f342a4545befae1df8514ed152f"
+    },
+    {
+      "path": "scripts/collect_upbit.py",
+      "bytes": 5293,
+      "sha256": "9c0632b141f2cba1ca40a3c6f74f72604c6c73e499847df7bf3a60f442eaa0f0"
+    },
+    {
+      "path": "scripts/create_snapshots.py",
+      "bytes": 1127,
+      "sha256": "d2aec1fbcef6d89cd4b0958312e9e0c20679481c58786aa061d00e91331e2a31"
+    },
+    {
+      "path": "scripts/network_probe.py",
+      "bytes": 736,
+      "sha256": "786982a1ae16117fc1ef82d142f099173ace2330a704f533801eeef198a3ccb2"
+    },
+    {
+      "path": "scripts/run_downloads.py",
+      "bytes": 627,
+      "sha256": "92061cb5c35034ac516111be1c62199f630eef47afafc53d3439ec5399658af0"
+    },
+    {
+      "path": "scripts/validate_prices.py",
+      "bytes": 3088,
+      "sha256": "4abd3b0e6bce71ae045e29a336186ca7596ebeae44837758de520a790603a855"
+    },
+    {
+      "path": "snapshots/first_news.json",
+      "bytes": 4112,
+      "sha256": "abd3d6900e303e208e7177e3518a1eb37a48ddea9b442990841aa52869a1e86e"
+    },
+    {
+      "path": "snapshots/game_end.json",
+      "bytes": 4485,
+      "sha256": "07d28ab2758cf3a833c57bb8cbe80a8a63ba5347fa9b3c3756de932781237ef4"
+    },
+    {
+      "path": "snapshots/game_start.json",
+      "bytes": 3738,
+      "sha256": "110aa1cdec5cb76e41fffce2fd67c413114379f9d59f4aad00cd0fac30c76e77"
+    },
+    {
+      "path": "snapshots/q4_released.json",
+      "bytes": 4112,
+      "sha256": "163a10301484dfac65b619019930aca63ef4abd501bb3c65f5923e588bbd3dcb"
+    },
+    {
+      "path": "sources/source_events.json",
+      "bytes": 11005,
+      "sha256": "631f76d6773f845f5236625aa70033bb834e7c3461e5a94694140a538c36e21c"
+    },
+    {
+      "path": "sources/source_index.csv",
+      "bytes": 4047,
+      "sha256": "5beff2fbfc50ce25ef9036a83b9152c252aa90a225febb81233e82efec3af039"
+    },
+    {
+      "path": "src/asof_engine.py",
+      "bytes": 5915,
+      "sha256": "52941e52fcfd180c199bedc33aafa4b7d812e3291879f1cd072dc55c74394b0b"
+    },
+    {
+      "path": "tests/test_asof.py",
+      "bytes": 4509,
+      "sha256": "8f9a518b55e7a0710cd340180cb1e82f0c96106e2254b72313715e8e964cb33d"
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+﻿alias,private_ticker,candidate_name_private,listing_date,notice_date,available_at_kst,tracking_index,evidence_url,status
+F,133690,TIGER NASDAQ100,2010-10-18,2010-10-14,2010-10-15T00:00:00+09:00,NASDAQ-100,https://www.newswire.co.kr/newsRead.php?no=502815,CANDIDATE_NOT_CONFIRMED
+G,329200,TIGER REITS REAL ESTATE INFRA,2019-07-19,2019-07-18,2019-07-19T00:00:00+09:00,historical REIT and real estate infrastructure strategy; live index methodology may differ,https://www.newspim.com/news/view/20190718000921,CANDIDATE_NOT_CONFIRMED

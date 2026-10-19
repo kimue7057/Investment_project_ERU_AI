@@ -1,0 +1,10 @@
+{
+  "project": "ERU AI historical investment simulator",
+  "game_start_date": "2022-11-07",
+  "game_end_date": "2026-08-05",
+  "start_cash_krw": 100000000,
+  "market_replay_seconds": 300,
+  "asof_policy": "A dated disclosure becomes playable no earlier than 00:00 KST the calendar day after its publication date when publication hour is unknown. More precise timestamps override this conservative rule.",
+  "stock_candidates_pending_confirmation": true,
+  "metadata_fetched_at_utc": "2026-10-19T08:07:51.866447Z"
+}

@@ -1,0 +1,5 @@
+﻿alias,candidate_name_private,period,published_on,available_at_kst,sales_krw_trillion,operating_profit_krw_trillion,verified_source,release_type
+E,Samsung Electronics,2022-Q2,2022-07-28,2022-07-29T00:00:00+09:00,77.2,14.1,https://news.samsung.com/kr/%EC%82%BC%EC%84%B1%EC%A0%84%EC%9E%90-2022%EB%85%84-2%EB%B6%84%EA%B8%B0-%EC%8B%A4%EC%A0%81-%EB%B0%9C%ED%91%9C,actual
+E,Samsung Electronics,2022-Q3,2022-10-27,2022-10-28T00:00:00+09:00,76.78,10.85,https://news.samsung.com/kr/%EC%82%BC%EC%84%B1%EC%A0%84%EC%9E%90-2022%EB%85%84-3%EB%B6%84%EA%B8%B0-%EC%8B%A4%EC%A0%81-%EB%B0%9C%ED%91%9C,actual
+E,Samsung Electronics,2022-Q4,2023-01-31,2023-02-01T00:00:00+09:00,70.46,4.31,https://news.samsung.com/kr/%EC%82%BC%EC%84%B1%EC%A0%84%EC%9E%90-2022%EB%85%84-4%EB%B6%84%EA%B8%B0-%EC%8B%A4%EC%A0%81-%EB%B0%9C%ED%91%9C,actual
+E,Samsung Electronics,2023-Q1,2023-04-27,2023-04-28T00:00:00+09:00,63.75,0.64,https://news.samsung.com/kr/%EC%82%BC%EC%84%B1%EC%A0%84%EC%9E%90-2023%EB%85%84-1%EB%B6%84%EA%B8%B0-%EC%8B%A4%EC%A0%81-%EB%B0%9C%ED%91%9C,actual

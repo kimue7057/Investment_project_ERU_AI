@@ -1,0 +1,11 @@
+{
+  "description":"Daily historical observations with confirmed available-at timestamps",
+  "required":["asset_alias","session_date","price_available_at_kst","open","high","low","close","volume"],
+  "private_fields":["exchange","source_pair","data_source","source_quote_time_utc","source_url"],
+  "public_fields":["asset_alias","session_date","open","high","low","close","volume"],
+  "time_rule":"Only observations whose price_available_at_kst <= game_simulation_timestamp can enter public payload or AI recommendations",
+  "filling":"No fabricated or forward-filled observations. If actual market trading was closed, the last previously-known close can be carried with a stale-quote badge, never a synthetic new candle.",
+  "session_utc_crypto":"00:00 UTC to next 00:00 UTC, closes next day 09:00 KST",
+  "game_date_start":"2022-11-07",
+  "game_date_end":"2026-08-05"
+}

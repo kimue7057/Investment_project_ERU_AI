@@ -1,0 +1,10 @@
+{
+  "internal_required":["event_id","asset_alias","published_on","available_at_kst","document_type","public_title","public_summary","private_source_url","evidence_status"],
+  "public_allowlist":["event_id","asset_alias","published_on","document_type","public_title","public_summary"],
+  "ban_in_player_payload":["private_source_url","private_notes","true_asset_name","actual_ticker","future_count","future_publish_date"],
+  "publication_policy":"Without reliably timed proof of release, document dated D unlocks no earlier than 00:00 KST on D+1.",
+  "unknown_publication_date":"Do not show until manually verified.",
+  "post_release_revisions":"Archive/version-lock. A current document must never be substituted for a historical revision.",
+  "locked_future_behavior":"Do NOT show individual hidden future documents, titles, counts or dates. Show only currently known documents.",
+  "user_choice":"The user sees researched risks and may trade, sell, keep or rebalance independently; the underlying AI signal logic remains private."
+}

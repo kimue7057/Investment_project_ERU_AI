@@ -1,0 +1,55 @@
+{
+  "game_window": {
+    "start": "2022-11-07",
+    "end": "2026-08-05",
+    "calendar_days": 1368
+  },
+  "files": [
+    {
+      "asset_alias": "A",
+      "status": "MISSING_NOT_DOWNLOADED",
+      "game_rows": 0,
+      "file": null
+    },
+    {
+      "asset_alias": "B",
+      "status": "MISSING_NOT_DOWNLOADED",
+      "game_rows": 0,
+      "file": null
+    },
+    {
+      "asset_alias": "C",
+      "status": "MISSING_NOT_DOWNLOADED",
+      "game_rows": 0,
+      "file": null
+    },
+    {
+      "asset_alias": "D",
+      "status": "MISSING_NOT_DOWNLOADED",
+      "game_rows": 0,
+      "file": null
+    },
+    {
+      "asset_alias": "E",
+      "status": "MISSING_NOT_DOWNLOADED",
+      "game_rows": 0,
+      "file": null
+    },
+    {
+      "asset_alias": "F",
+      "status": "MISSING_NOT_DOWNLOADED",
+      "game_rows": 0,
+      "file": null
+    },
+    {
+      "asset_alias": "G",
+      "status": "MISSING_NOT_DOWNLOADED",
+      "game_rows": 0,
+      "file": null
+    }
+  ],
+  "all_crypto_downloaded_and_qa_passed": false,
+  "candidate_stocks_confirmed": false,
+  "ready_for_live_game": false,
+  "warning": "This report checks actual files. The absence of rows is NOT filled with synthetic prices. No equity candidate is final."
+}

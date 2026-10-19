@@ -1,0 +1,116 @@
+{
+  "as_of": "2022-11-18T23:59:59+09:00",
+  "assets": {
+    "A": {
+      "display_symbol": "A",
+      "as_of": "2022-11-18T23:59:59+09:00",
+      "research": [
+        {
+          "event_id": "A-2008-10-31-paper",
+          "asset_alias": "A",
+          "published_on": "2008-10-31",
+          "document_type": "technical_paper",
+          "public_title": "Initial technical paper",
+          "public_summary": "The early technical proposal describes direct electronic value transfer and transaction validation without a central intermediary."
+        }
+      ],
+      "recent_candles": [],
+      "guard_state": "always_on"
+    },
+    "B": {
+      "display_symbol": "B",
+      "as_of": "2022-11-18T23:59:59+09:00",
+      "research": [
+        {
+          "event_id": "B-2022-08-24-transition",
+          "asset_alias": "B",
+          "published_on": "2022-08-24",
+          "document_type": "network_announcement",
+          "public_title": "Network transition announced",
+          "public_summary": "The project announced a planned shift to a different transaction validation mechanism."
+        },
+        {
+          "event_id": "B-2014-01-23-intro",
+          "asset_alias": "B",
+          "published_on": "2014-01-23",
+          "document_type": "project_announcement",
+          "public_title": "Programmable contracts introduced",
+          "public_summary": "Early project documents describe programmable digital contracts and application execution on a distributed network."
+        }
+      ],
+      "recent_candles": [],
+      "guard_state": "always_on"
+    },
+    "C": {
+      "display_symbol": "C",
+      "as_of": "2022-11-18T23:59:59+09:00",
+      "research": [
+        {
+          "event_id": "C-2022-11-17-network",
+          "asset_alias": "C",
+          "published_on": "2022-11-17",
+          "document_type": "network_status",
+          "public_title": "Network condition report published",
+          "public_summary": "The project released information on network status and resilience following a major market event."
+        },
+        {
+          "event_id": "C-2022-10-06-incident",
+          "asset_alias": "C",
+          "published_on": "2022-10-06",
+          "document_type": "operational_incident",
+          "public_title": "Network interruption report published",
+          "public_summary": "A published incident report describes a temporary interruption and subsequent coordinated restart."
+        },
+        {
+          "event_id": "C-2018-04-18-technology",
+          "asset_alias": "C",
+          "published_on": "2018-04-18",
+          "document_type": "technical_explainer",
+          "public_title": "Core network technique explained",
+          "public_summary": "The project explained how its network coordinates time and ordering for high-volume transaction processing."
+        }
+      ],
+      "recent_candles": [],
+      "guard_state": "always_on"
+    },
+    "D": {
+      "display_symbol": "D",
+      "as_of": "2022-11-18T23:59:59+09:00",
+      "research": [
+        {
+          "event_id": "D-2022-07-20-software",
+          "asset_alias": "D",
+          "published_on": "2022-07-20",
+          "document_type": "official_software_release",
+          "public_title": "Client software update reported",
+          "public_summary": "Developer release notes document maintenance, network reliability and security changes."
+        }
+      ],
+      "recent_candles": [],
+      "guard_state": "always_on"
+    },
+    "E": {
+      "display_symbol": "E",
+      "as_of": "2022-11-18T23:59:59+09:00",
+      "research": [],
+      "recent_candles": [],
+      "guard_state": "always_on"
+    },
+    "F": {
+      "display_symbol": "F",
+      "as_of": "2022-11-18T23:59:59+09:00",
+      "research": [],
+      "recent_candles": [],
+      "guard_state": "always_on"
+    },
+    "G": {
+      "display_symbol": "G",
+      "as_of": "2022-11-18T23:59:59+09:00",
+      "research": [],
+      "recent_candles": [],
+      "guard_state": "always_on"
+    }
+  },
+  "verified_research_items": 7,
+  "note": "Price arrays intentionally empty until actual downloaded/validated market data exists."
+}

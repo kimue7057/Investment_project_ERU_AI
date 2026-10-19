@@ -1,0 +1,1 @@
+No actual historical price data was downloaded in the current environment. Run scripts/collect_upbit.py or scripts/collect_kr_stocks.py on a networked PC. Do not fabricate candle data.

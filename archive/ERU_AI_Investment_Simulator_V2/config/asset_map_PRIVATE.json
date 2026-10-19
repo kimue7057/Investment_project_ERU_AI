@@ -1,0 +1,60 @@
+{
+  "CASH": {
+    "asset_class": "cash",
+    "real_asset": "KRW",
+    "selected": true,
+    "market": "KRW"
+  },
+  "A": {
+    "asset_class": "crypto",
+    "real_asset": "Bitcoin",
+    "symbol": "BTC",
+    "market": "KRW-BTC",
+    "selected": true
+  },
+  "B": {
+    "asset_class": "crypto",
+    "real_asset": "Ethereum",
+    "symbol": "ETH",
+    "market": "KRW-ETH",
+    "selected": true
+  },
+  "C": {
+    "asset_class": "crypto",
+    "real_asset": "Solana",
+    "symbol": "SOL",
+    "market": "KRW-SOL",
+    "selected": true
+  },
+  "D": {
+    "asset_class": "crypto",
+    "real_asset": "Dogecoin",
+    "symbol": "DOGE",
+    "market": "KRW-DOGE",
+    "selected": true
+  },
+  "E": {
+    "asset_class": "equity",
+    "real_asset": "Samsung Electronics Co., Ltd.",
+    "symbol": "005930.KS",
+    "exchange_code": "005930",
+    "selected": false,
+    "status": "CANDIDATE_ONLY"
+  },
+  "F": {
+    "asset_class": "equity_etf",
+    "real_asset": "TIGER NASDAQ100 ETF",
+    "symbol": "133690.KS",
+    "exchange_code": "133690",
+    "selected": false,
+    "status": "CANDIDATE_ONLY"
+  },
+  "G": {
+    "asset_class": "reit_etf",
+    "real_asset": "TIGER REITS REAL ESTATE INFRA ETF",
+    "symbol": "329200.KS",
+    "exchange_code": "329200",
+    "selected": false,
+    "status": "CANDIDATE_ONLY"
+  }
+}

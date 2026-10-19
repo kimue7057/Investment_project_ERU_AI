@@ -1,0 +1,25 @@
+{
+  "checked_at_utc": "2026-10-19T08:21:58.945682+00:00",
+  "hosts": {
+    "api.upbit.com": {
+      "dns": "BLOCKED",
+      "error": "gaierror: [Errno -3] Temporary failure in name resolution"
+    },
+    "query1.finance.yahoo.com": {
+      "dns": "BLOCKED",
+      "error": "gaierror: [Errno -3] Temporary failure in name resolution"
+    },
+    "query2.finance.yahoo.com": {
+      "dns": "BLOCKED",
+      "error": "gaierror: [Errno -3] Temporary failure in name resolution"
+    },
+    "news.samsung.com": {
+      "dns": "BLOCKED",
+      "error": "gaierror: [Errno -3] Temporary failure in name resolution"
+    },
+    "solana.com": {
+      "dns": "BLOCKED",
+      "error": "gaierror: [Errno -3] Temporary failure in name resolution"
+    }
+  }
+}
