@@ -32,6 +32,7 @@ fs.mkdirSync(out, {recursive:true});
   await page.getByRole('button',{name:'투자 시작 →'}).click();
   await page.getByRole('heading',{name:/^시뮬레이션 (진행 중|일시정지)$/}).waitFor();
   const sid=await page.evaluate(()=>localStorage.getItem('eru-session'));
+  if(base.startsWith('https://'))fs.writeFileSync(path.join(out,'cloud-test-session.json'),JSON.stringify({id:sid,base}));
   const api = async(action,body)=>{
     const r=body===undefined?await context.request.get(`${base}/api/sessions/${sid}`):await context.request.post(`${base}/api/sessions/${sid}/${action}`,{data:body});
     const data=await r.json();
@@ -85,6 +86,7 @@ fs.mkdirSync(out, {recursive:true});
   // 300 seconds of actual wall-clock replay. Pauses are explicitly resumed.
   for(;;){
     g=await api();polls++;
+    if(polls%60===0)console.log(JSON.stringify({checked:polls,active_seconds:g.elapsed,game_now:g.now}));
     if(g.status!=='finished'){
       assert(!/bitcoin|ethereum|solana|dogecoin|https?:\/\/|\b(?:BTC|ETH|SOL|DOGE)\b|source_pair|private_source/i.test(JSON.stringify(g)));
       for(const c of g.chart)assert(new Date(c.time+'T09:00:00+09:00').getTime()+86400000<=Date.parse(g.now));
@@ -98,7 +100,7 @@ fs.mkdirSync(out, {recursive:true});
       }
       await api('resume',{});
     }
-    if(Date.now()-started>420000)throw new Error('Wall-clock replay timeout');
+    if(Date.now()-started>(base.startsWith('http://127.0.0.1')?420000:900000))throw new Error('Wall-clock replay timeout');
     await page.waitForTimeout(250);
   }
   await page.getByRole('heading',{name:'나의 선택, 투자 결과는?'}).waitFor();
