@@ -74,7 +74,7 @@ export default function App() {
       } catch(e) {if(!stopped) setError((e as Error).message);}
       finally {inFlight.current=false;}
     }
-    void poll();const timer=window.setInterval(poll,500);
+    void poll();const timer=window.setInterval(poll,['localhost','127.0.0.1'].includes(window.location.hostname)?500:1000);
     return ()=>{stopped=true;clearInterval(timer);};
   },[sid,chartAsset]);
   useEffect(()=>{ if(!notice)return;const t=setTimeout(()=>setNotice(''),6000);return()=>clearTimeout(t); },[notice]);

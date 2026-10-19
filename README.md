@@ -1,25 +1,32 @@
 # ERU AI Investment Simulator · Alpha V1
 
-Windows PC에서 실제 과거 시세로 플레이하는 5분 투자 시뮬레이터입니다. 기존 V2 자료는 원본과 `archive/ERU_AI_Investment_Simulator_V2/`에 보존했습니다.
+실제 과거 시세로 플레이하는 5분 투자 시뮬레이터입니다. Vercel 온라인 Alpha와 Windows 로컬 실행을 지원합니다. 기존 V2 자료는 원본과 `archive/ERU_AI_Investment_Simulator_V2/`에 보존했습니다.
+
+## 온라인에서 바로 플레이
+
+**[ERU AI Alpha V1 열기 →](https://eru-ai-investment-simulator.vercel.app)**
+
+설치 없이 브라우저에서 열고 `투자상품 탐색하기 →`를 누르세요. 초기 비중 합계를 100%로 설정한 뒤 `투자 시작 →`을 누르면 실제 과거 시장이 재생됩니다. [배포 및 운영 안내](docs/Vercel_배포.md)
 
 ## 확인 및 공유 링크
 
 | 확인할 내용 | 링크 |
 |---|---|
-| 이 PC에서 실제 플레이 | **[ERU AI Alpha V1 열기](http://127.0.0.1:8000)** |
-| 서버 실행 상태 확인 | [상태 확인](http://127.0.0.1:8000/api/health) — 정상일 때 `status: ready` |
+| 온라인 플레이 · 공유용 | **[ERU AI Alpha V1 열기](https://eru-ai-investment-simulator.vercel.app)** |
+| 온라인 서버 실행 상태 | [상태 확인](https://eru-ai-investment-simulator.vercel.app/api/health) — 정상일 때 `status: ready` |
+| Windows 로컬 플레이 | [이 PC에서 열기](http://127.0.0.1:8000) — 로컬 서버 실행 후 접속 |
 | README 공유 | [GitHub 프로젝트 안내](https://github.com/kimue7057/Investment_project_ERU_AI#readme) |
 | 실제 테스트 결과 | [Alpha V1 구현·검증 보고](docs/Alpha_V1_검증_보고.md) |
 | 실제 시세 검증 결과 | [데이터 검증 JSON](data/metadata/validation.json) |
 | 기존 디자인 | [Figma 18개 화면](https://www.figma.com/design/8hP2vt56sOezV4kF0mAdzI) |
 
-**플레이 링크는 서버를 실행한 Windows PC에서 접속하는 로컬 주소입니다.** 다른 사람에게 GitHub README 링크를 공유하면 안내와 아래 화면을 확인할 수 있습니다. 다른 PC에서 직접 플레이하려면 저장소를 내려받고 해당 PC에서 설치·실행해야 합니다. 인터넷에서 누구나 접속하는 공개 데모 주소는 아직 없습니다.
+**공유할 때는 `https://eru-ai-investment-simulator.vercel.app`을 보내세요.** 다른 PC와 모바일에서도 설치 없이 접속할 수 있습니다. `127.0.0.1`은 로컬 실행을 선택한 PC에서만 사용하는 주소입니다. GitHub README를 공유하면 실행 안내와 아래 실제 화면도 함께 확인할 수 있습니다.
 
 ![ERU AI Alpha V1 실제 시작 화면](docs/screenshots/alpha-v1-start.png)
 
 위 이미지는 실제로 실행한 Alpha V1의 시작 화면입니다. 시작 자금과 게임 절차를 표시하며 예시 투자 수익률을 넣지 않았습니다.
 
-## 바로 실행
+## Windows 로컬 실행
 
 1. Windows 파일 탐색기에서 이 프로젝트 폴더를 엽니다.
 2. **`RUN_ERU_AI.cmd`를 더블클릭**합니다. 이 PC에는 개발 환경, 검증된 시세 및 프론트엔드 빌드가 준비되어 있습니다.
@@ -68,7 +75,7 @@ Windows PC에서 실제 과거 시세로 플레이하는 5분 투자 시뮬레�
 
 실제 식별자·원문 링크·미래 자료의 존재 및 가격은 종료 전 API에서 보내지 않습니다. 정적 웹 서버는 `frontend/dist`만 제공합니다. 가격·시간·체결·잔고는 서버가 관리하며 브라우저의 날짜를 신뢰하지 않습니다.
 
-이 앱은 **로컬 내부 검토용 Alpha**입니다. 시세 데이터와 문서의 공개 재배포·상업 이용 허가는 확보하지 않았으므로 공개 호스팅/상업 배포는 별도 라이선스 확인 후 진행해야 합니다. 원본 데이터는 Git에 넣지 않았습니다. [공식 일봉 API 문서](https://docs.upbit.com/kr/reference/list-candles-days), [Open API 약관 개정 안내](https://docs.upbit.com/kr/changelog/open_api_agreement_revision)를 확인했습니다. 문서 원문은 배포하지 않고 요약만 제공합니다.
+이 앱은 **검토용 Alpha**이며 사용자 요청에 따라 Vercel 체험 주소를 배포했습니다. 시세 데이터와 문서의 공개 재배포·상업 이용 허가는 확보하지 않았으므로, 체험 주소 배포가 해당 권한을 확보했다는 의미는 아닙니다. 상용 서비스 공개 전 이용 범위를 별도로 확정해야 합니다. 원본 데이터는 Git에 넣지 않았으며 배포용 시세도 비공개 저장소에 둡니다. [공식 일봉 API 문서](https://docs.upbit.com/kr/reference/list-candles-days), [Open API 약관 개정 안내](https://docs.upbit.com/kr/changelog/open_api_agreement_revision)를 확인했습니다. 문서 원문은 배포하지 않고 요약만 제공합니다.
 
 ## 개발·검증
 
@@ -93,6 +100,8 @@ Pop-Location
 ```
 
 브라우저 전체 테스트는 로컬 서버 실행 후 `node scripts/browser_smoke.cjs`로 실행합니다. Playwright가 필요하며 `ERU_PLAYWRIGHT_PATH`에 설치 경로를 지정할 수 있습니다. Codex 번들 설치는 자동 탐색합니다. 실제 300초 재생과 수동 주문, 자료 공개, 정체 비공개, 결과·재도전까지 검사합니다. 결과 및 스크린샷은 Git에서 제외된 `test-results/`에 저장합니다.
+
+온라인 배포를 검사하려면 먼저 `$env:ERU_BASE_URL='https://eru-ai-investment-simulator.vercel.app'`을 지정합니다. 클라우드 저장·콜드 스타트·비공개 파일·동시 변경에 대한 회귀 테스트도 `pytest tests`에 포함됩니다.
 
 ## 구성 및 저장 위치
 

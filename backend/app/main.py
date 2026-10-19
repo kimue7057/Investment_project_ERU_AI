@@ -15,14 +15,19 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .engine import Engine, fresh, weights
 from .market import Market, ROOT, START, CATALOG
+from .blob_store import BlobSessions, StorageConflict
 
 app = FastAPI(title="ERU AI Alpha V1", docs_url=None, redoc_url=None, openapi_url=None)
 lock = threading.RLock()
 anchors = {}
-db_path = Path(os.environ.get("ERU_DB_PATH", str(ROOT / "data/runtime/sessions.sqlite3")))
-db_path.parent.mkdir(parents=True, exist_ok=True)
-db = sqlite3.connect(db_path, check_same_thread=False)
-db.execute("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, state TEXT NOT NULL)")
+IS_CLOUD = os.environ.get("VERCEL") == "1"
+cloud_store = BlobSessions() if IS_CLOUD and os.environ.get("BLOB_READ_WRITE_TOKEN") else None
+db = None
+if not IS_CLOUD:
+    db_path = Path(os.environ.get("ERU_DB_PATH", str(ROOT / "data/runtime/sessions.sqlite3")))
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(db_path, check_same_thread=False)
+    db.execute("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, state TEXT NOT NULL)")
 try:
     market = Market()
     engine = Engine(market)
@@ -34,13 +39,19 @@ except (OSError, ValueError, KeyError) as exc:
 
 @app.middleware("http")
 async def local_boundary(request: Request, call_next):
-    # The server binds to loopback; block browser-origin cross-site mutations and DNS rebinding.
     host = request.headers.get("host", "").split(":")[0]
-    if host not in ("127.0.0.1", "localhost", "testserver"):
-        return JSONResponse({"detail": "로컬 접속만 허용됩니다."}, status_code=403)
+    allowed = {"127.0.0.1", "localhost", "testserver"}
+    if IS_CLOUD:
+        allowed.update(filter(None, [os.environ.get(k) for k in ("VERCEL_URL", "VERCEL_PROJECT_PRODUCTION_URL", "VERCEL_BRANCH_URL")]))
+        allowed.update(filter(None, os.environ.get("ERU_ALLOWED_HOSTS", "").split(",")))
+    if host not in allowed:
+        return JSONResponse({"detail": "허용된 서비스 주소에서 접속하세요."}, status_code=403)
     origin = request.headers.get("origin")
-    if origin and origin not in ("http://127.0.0.1:8000", "http://localhost:8000", "http://127.0.0.1:5173", "http://localhost:5173"):
-        return JSONResponse({"detail": "동일 로컬 웹사이트에서 접속하세요."}, status_code=403)
+    origins = {"http://127.0.0.1:8000", "http://localhost:8000", "http://127.0.0.1:5173", "http://localhost:5173"}
+    if IS_CLOUD:
+        origins.add("https://" + host)
+    if origin and origin not in origins:
+        return JSONResponse({"detail": "동일 웹사이트에서 접속하세요."}, status_code=403)
     response = await call_next(request)
     response.headers["Cache-Control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -89,7 +100,9 @@ def load(sid):
     return state
 
 
-def update(sid, action, alias="A"):
+def update(sid, action, alias="A", read_only=False):
+    if IS_CLOUD:
+        return update_cloud(sid, action, alias, read_only)
     with lock:
         state = load(sid)
         before = copy.deepcopy(state)
@@ -102,9 +115,55 @@ def update(sid, action, alias="A"):
         return {"id": sid, **engine.public(state, alias)}
 
 
+def update_cloud(sid, action, alias="A", read_only=False):
+    if not data_ready or cloud_store is None:
+        raise HTTPException(503, "배포 데이터 또는 비공개 저장소를 준비 중입니다.")
+    for _ in range(4):
+        try:
+            result = cloud_store.read(sid)
+        except ValueError:
+            result = None
+        except Exception:
+            raise HTTPException(503, "게임 저장소에 연결할 수 없습니다. 잠시 후 다시 시도하세요.") from None
+        if result is None:
+            raise HTTPException(404, "게임을 찾을 수 없습니다. 새 게임을 시작하세요.")
+        envelope, etag = result
+        state = envelope["state"]
+        original = copy.deepcopy(state)
+        wall = time.time()
+        delta = max(0, wall - envelope["last_seen"])
+        # A suspended/background browser does not silently skip a long market period.
+        if state["status"] == "running" and delta > 15:
+            state["status"] = "paused"
+        else:
+            engine.advance(state, delta)
+        before = copy.deepcopy(state)
+        error = None
+        try:
+            action(state)
+        except ValueError as exc:
+            state, error = before, str(exc)
+        try:
+            # Reconstruct ordinary frames without writing on every poll. Persist
+            # decisions, stop/end boundaries, and a five-second liveness checkpoint.
+            must_save = not read_only or state["status"] != original["status"] or delta >= 5
+            if state != original and must_save:
+                cloud_store.write(sid, state, wall, etag)
+        except StorageConflict:
+            continue
+        except Exception:
+            raise HTTPException(503, "게임 상태를 저장하지 못했습니다. 잠시 후 다시 시도하세요.") from None
+        if error:
+            raise HTTPException(400, error)
+        return {"id": sid, **engine.public(state, alias)}
+    raise HTTPException(409, "다른 요청을 처리 중입니다. 잠시 후 다시 시도하세요.")
+
+
 @app.get("/api/health")
 def health():
-    return {"status": "ready" if data_ready else "data_required", "version": "Alpha V1"}
+    ready = data_ready and (not IS_CLOUD or cloud_store is not None)
+    return {"status": "ready" if ready else "data_required", "version": "Alpha V1",
+            "storage": "private_blob" if IS_CLOUD else "sqlite"}
 
 
 @app.get("/api/catalog")
@@ -120,8 +179,16 @@ def create():
         raise HTTPException(503, "시세 데이터 수집 및 검증이 필요합니다.")
     with lock:
         sid, state = str(uuid.uuid4()), fresh()
-        save(sid, state)
-        anchors[sid] = time.monotonic()
+        if IS_CLOUD:
+            if cloud_store is None:
+                raise HTTPException(503, "게임 저장소를 준비 중입니다.")
+            try:
+                cloud_store.write(sid, state, time.time())
+            except Exception:
+                raise HTTPException(503, "게임을 저장하지 못했습니다. 잠시 후 다시 시도하세요.") from None
+        else:
+            save(sid, state)
+            anchors[sid] = time.monotonic()
         return {"id": sid, **engine.public(state)}
 
 
@@ -129,7 +196,7 @@ def create():
 def state(sid: str, asset: str = "A"):
     if asset not in "ABCD" or len(asset) != 1:
         raise HTTPException(400, "지원하지 않는 상품입니다.")
-    return update(sid, lambda s: None, asset)
+    return update(sid, lambda s: None, asset, read_only=True)
 
 
 @app.post("/api/sessions/{sid}/start")

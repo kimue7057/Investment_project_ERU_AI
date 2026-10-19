@@ -1,0 +1,16 @@
+.git
+.env*
+.venv
+**/__pycache__
+**/node_modules
+**/*.tsbuildinfo
+.pytest_cache
+archive
+test-results
+reports
+docs
+*.zip
+data/raw
+data/normalized
+data/runtime
+data/metadata/*PRIVATE*

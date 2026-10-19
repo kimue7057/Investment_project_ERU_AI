@@ -1,0 +1,119 @@
+import copy
+import json
+import uuid
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+
+from backend.app import main
+from backend.app.blob_store import BlobSessions, PrivateBlob, StorageConflict
+
+
+class MemoryCloud:
+    def __init__(self):
+        self.records = {}
+        self.writes = 0
+        self.fail_once = False
+
+    def read(self, sid):
+        return copy.deepcopy(self.records.get(sid))
+
+    def write(self, sid, state, wall_time, etag=None):
+        if self.fail_once:
+            self.fail_once = False
+            raise StorageConflict()
+        if etag is not None and etag != self.records[sid][1]:
+            raise StorageConflict()
+        self.writes += 1
+        self.records[sid] = ({"state": copy.deepcopy(state), "last_seen": wall_time}, str(self.writes))
+
+
+@pytest.fixture
+def cloud(monkeypatch):
+    store = MemoryCloud()
+    wall = [1000.0]
+    monkeypatch.setattr(main, "IS_CLOUD", True)
+    monkeypatch.setattr(main, "cloud_store", store)
+    monkeypatch.setattr(main.time, "time", lambda: wall[0])
+    with TestClient(main.app) as client:
+        yield client, store, wall
+
+
+def start_cloud(client):
+    s = client.post("/api/sessions").json()
+    url = f"/api/sessions/{s['id']}"
+    r = client.post(url + "/start", json={"weights": {"cash": 100, "A": 0, "B": 0, "C": 0, "D": 0}})
+    assert r.status_code == 200
+    return url
+
+
+def test_cold_instances_share_clock_and_state(cloud):
+    c, store, wall = cloud
+    url = start_cloud(c)
+    writes = store.writes
+    wall[0] += .03
+    first = c.get(url).json()
+    main.anchors.clear()
+    wall[0] += .03
+    second = c.get(url).json()
+    assert second["status"] == "running"
+    assert second["elapsed"] > first["elapsed"]
+    assert second["cash"] == 100000000
+    assert store.writes == writes  # Read-only frames do not contend with decisions.
+
+
+def test_cloud_pause_and_long_inactivity(cloud):
+    c, store, wall = cloud
+    url = start_cloud(c)
+    wall[0] += 30
+    paused = c.get(url).json()
+    assert paused["status"] == "paused" and paused["elapsed"] == 0
+    count = store.writes
+    wall[0] += 100
+    assert c.get(url).json()["now"] == paused["now"]
+    assert store.writes == count
+    c.post(url + "/resume", json={})
+    wall[0] += .03
+    assert c.get(url).json()["elapsed"] > 0
+
+
+def test_cloud_compare_and_swap_retry(cloud):
+    c, store, wall = cloud
+    url = start_cloud(c)
+    store.fail_once = True
+    assert c.post(url + "/pause", json={}).status_code == 200
+    assert c.get(url).json()["status"] == "paused"
+
+
+def test_cloud_only_trusts_exact_configured_host(cloud, monkeypatch):
+    c, _, _ = cloud
+    host = "eru-ai-investment-simulator.vercel.app"
+    monkeypatch.setenv("ERU_ALLOWED_HOSTS", host)
+    assert c.get("/api/health", headers={"Host": host, "Origin": "https://"+host}).status_code == 200
+    assert c.post("/api/sessions", headers={"Host": host, "Origin": "https://other.vercel.app"}).status_code == 403
+    assert c.get("/api/health", headers={"Host": "other.vercel.app"}).status_code == 403
+
+
+def test_private_origin_reads_and_conditional_write_protocol():
+    seen = []
+    def handler(request):
+        seen.append(request)
+        if request.method == "GET":
+            assert request.url.params["cache"] == "0"
+            return httpx.Response(200, content=b'{"state":{}}', headers={"etag": '"old"'})
+        assert request.headers["x-if-match"] == '"old"'
+        assert request.url.params["pathname"] == "sessions/check.json"
+        return httpx.Response(412)
+    b = PrivateBlob(token="vercel_blob_rw_testid_test", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    assert b.read("sessions/check.json")[1] == '"old"'
+    with pytest.raises(StorageConflict):
+        b.put("sessions/check.json", b"{}", etag='"old"', overwrite=True)
+    assert seen[0].url.host.endswith(".private.blob.vercel-storage.com")
+
+
+def test_cloud_session_paths_do_not_accept_arbitrary_objects():
+    s = BlobSessions(blob=object())
+    with pytest.raises(ValueError):
+        s.path("../../market/alpha-v1.zip")
+    assert s.path(str(uuid.uuid4())).endswith(".json")
