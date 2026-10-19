@@ -2,9 +2,32 @@
 
 Windows PC에서 실제 과거 시세로 플레이하는 5분 투자 시뮬레이터입니다. 기존 V2 자료는 원본과 `archive/ERU_AI_Investment_Simulator_V2/`에 보존했습니다.
 
+## 확인 및 공유 링크
+
+| 확인할 내용 | 링크 |
+|---|---|
+| 이 PC에서 실제 플레이 | **[ERU AI Alpha V1 열기](http://127.0.0.1:8000)** |
+| 서버 실행 상태 확인 | [상태 확인](http://127.0.0.1:8000/api/health) — 정상일 때 `status: ready` |
+| README 공유 | [GitHub 프로젝트 안내](https://github.com/kimue7057/Investment_project_ERU_AI#readme) |
+| 실제 테스트 결과 | [Alpha V1 구현·검증 보고](docs/Alpha_V1_검증_보고.md) |
+| 실제 시세 검증 결과 | [데이터 검증 JSON](data/metadata/validation.json) |
+| 기존 디자인 | [Figma 18개 화면](https://www.figma.com/design/8hP2vt56sOezV4kF0mAdzI) |
+
+**플레이 링크는 서버를 실행한 Windows PC에서 접속하는 로컬 주소입니다.** 다른 사람에게 GitHub README 링크를 공유하면 안내와 아래 화면을 확인할 수 있습니다. 다른 PC에서 직접 플레이하려면 저장소를 내려받고 해당 PC에서 설치·실행해야 합니다. 인터넷에서 누구나 접속하는 공개 데모 주소는 아직 없습니다.
+
+![ERU AI Alpha V1 실제 시작 화면](docs/screenshots/alpha-v1-start.png)
+
+위 이미지는 실제로 실행한 Alpha V1의 시작 화면입니다. 시작 자금과 게임 절차를 표시하며 예시 투자 수익률을 넣지 않았습니다.
+
 ## 바로 실행
 
-프로젝트 폴더의 **`RUN_ERU_AI.cmd`를 더블클릭**하세요. 브라우저에서 **http://127.0.0.1:8000**에 접속합니다. 이 PC에는 개발 환경, 검증된 시세 및 프론트엔드 빌드가 준비되어 있습니다.
+1. Windows 파일 탐색기에서 이 프로젝트 폴더를 엽니다.
+2. **`RUN_ERU_AI.cmd`를 더블클릭**합니다. 이 PC에는 개발 환경, 검증된 시세 및 프론트엔드 빌드가 준비되어 있습니다.
+3. 자동으로 열린 브라우저 또는 **[플레이 링크](http://127.0.0.1:8000)**에서 `투자상품 탐색하기 →`를 누릅니다.
+
+화면을 확인하려면 상품 정보를 열어본 뒤 비중 합계를 100%로 설정하고 `투자 시작 →`를 누릅니다. 시장을 일시정지해 매수·매도·비중 조정을 주문한 뒤 다시 재생하면 실제 잔고와 보유량이 갱신됩니다.
+
+접속이 안 되면 `RUN_ERU_AI.cmd`를 실행한 뒤 [상태 확인](http://127.0.0.1:8000/api/health)을 다시 엽니다. 실행·설치·종료 파일의 소스는 [RUN_ERU_AI.cmd](RUN_ERU_AI.cmd), [SETUP_ERU_AI.cmd](SETUP_ERU_AI.cmd), [STOP_ERU_AI.cmd](STOP_ERU_AI.cmd)에서 확인할 수 있습니다. GitHub에서 실행 파일 링크를 누르면 내용이 표시되므로, 실행은 내려받은 프로젝트의 파일 탐색기에서 진행하세요.
 
 새 PC에서는 `SETUP_ERU_AI.cmd`를 먼저 실행합니다. Python 3.12 이상, Node.js 22.12 이상 및 pnpm 11이 필요합니다. Codex가 제공하는 런타임이 있으면 자동으로 사용합니다. 최초 설치·실제 시세 수집에는 인터넷이 필요합니다.
 
