@@ -5,6 +5,7 @@ import sqlite3
 import threading
 import time
 import uuid
+import logging
 from pathlib import Path
 from typing import Literal
 
@@ -20,6 +21,21 @@ from .blob_store import BlobSessions, StorageConflict
 app = FastAPI(title="ERU AI Alpha V1", docs_url=None, redoc_url=None, openapi_url=None)
 lock = threading.RLock()
 anchors = {}
+log = logging.getLogger("eru.cloud")
+
+
+def storage_failure(operation, exc):
+    response = getattr(exc, "response", None)
+    code = "unavailable"
+    if response is not None:
+        try:
+            candidate = response.json().get("error", {}).get("code", "unknown")
+            if isinstance(candidate, str) and len(candidate) < 80 and all(c.isalnum() or c == "_" for c in candidate):
+                code = candidate
+        except (ValueError, AttributeError):
+            pass
+    log.warning("storage_%s_failed type=%s status=%s code=%s", operation, type(exc).__name__,
+                getattr(response, "status_code", None), code)
 IS_CLOUD = os.environ.get("VERCEL") == "1"
 cloud_store = BlobSessions() if IS_CLOUD and os.environ.get("BLOB_READ_WRITE_TOKEN") else None
 db = None
@@ -123,7 +139,8 @@ def update_cloud(sid, action, alias="A", read_only=False):
             result = cloud_store.read(sid)
         except ValueError:
             result = None
-        except Exception:
+        except Exception as exc:
+            storage_failure("read", exc)
             raise HTTPException(503, "게임 저장소에 연결할 수 없습니다. 잠시 후 다시 시도하세요.") from None
         if result is None:
             raise HTTPException(404, "게임을 찾을 수 없습니다. 새 게임을 시작하세요.")
@@ -151,7 +168,8 @@ def update_cloud(sid, action, alias="A", read_only=False):
                 cloud_store.write(sid, state, wall, etag)
         except StorageConflict:
             continue
-        except Exception:
+        except Exception as exc:
+            storage_failure("write", exc)
             raise HTTPException(503, "게임 상태를 저장하지 못했습니다. 잠시 후 다시 시도하세요.") from None
         if error:
             raise HTTPException(400, error)
