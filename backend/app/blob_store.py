@@ -26,11 +26,14 @@ class PrivateBlob:
 
     def read(self, path):
         url = f"https://{self.store_id.lower()}.private.blob.vercel-storage.com/{quote(path, safe='/')}"
-        r = self.client.get(url, params={"cache": "0"}, headers={"Authorization": "Bearer " + self.token})
+        r = self.client.get(url, params={"cache": "0"}, headers={"Authorization": "Bearer " + self.token,
+                           "Accept-Encoding": "identity"})
         if r.status_code == 404:
             return None
         r.raise_for_status()
-        return r.content, r.headers["etag"]
+        # CDN compression can weaken the delivery validator while keeping the
+        # same underlying object tag; writes require the object's strong tag.
+        return r.content, r.headers["etag"].removeprefix("W/")
 
     def put(self, path, body, etag=None, overwrite=False):
         headers = {"Authorization": "Bearer " + self.token, "x-api-version": "13",

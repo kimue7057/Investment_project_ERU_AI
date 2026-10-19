@@ -117,3 +117,11 @@ def test_cloud_session_paths_do_not_accept_arbitrary_objects():
     with pytest.raises(ValueError):
         s.path("../../market/alpha-v1.zip")
     assert s.path(str(uuid.uuid4())).endswith(".json")
+
+
+def test_private_delivery_compression_cannot_break_compare_and_swap():
+    def handler(request):
+        assert request.headers["accept-encoding"] == "identity"
+        return httpx.Response(200, content=b"{}", headers={"etag": 'W/"object-revision"'})
+    b = PrivateBlob(token="vercel_blob_rw_testid_test", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    assert b.read("checks/large.json")[1] == '"object-revision"'
