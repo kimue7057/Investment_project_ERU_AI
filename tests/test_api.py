@@ -26,6 +26,7 @@ def test_api_only_accepts_aliases_and_server_owned_time(client):
     assert client.post(url + "/start", json={"weights": {"cash": 100, "A": 0, "B": 0, "C": 0, "D": 0}, "now": "2026-08-05"}).status_code == 422
     assert client.post(url + "/start", json={"weights": {"cash": 100, "A": 0, "B": 0, "C": 0, "D": 0}}).status_code == 200
     assert client.post(url + "/pause", json={}).json()["status"] == "paused"
+    assert client.post(url + "/pause", json={}).json()["status"] == "paused"
     paused = client.get(url).json()
     assert client.get(url).json()["now"] == paused["now"]
     assert client.post(url + "/start", json={"weights": {"cash": 100, "A": 0, "B": 0, "C": 0, "D": 0}}).status_code == 400

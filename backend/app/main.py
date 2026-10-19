@@ -140,6 +140,8 @@ def start(sid: str, body: Allocation):
 @app.post("/api/sessions/{sid}/pause")
 def pause(sid: str):
     def action(s):
+        if s["status"] == "paused":
+            return  # An automatic alert may pause between the UI click and this request.
         if s["status"] != "running":
             raise ValueError("재생 중인 게임만 일시정지할 수 있습니다.")
         s["status"] = "paused"
