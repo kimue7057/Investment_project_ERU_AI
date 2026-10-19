@@ -16,4 +16,4 @@ docs/figma/reference/
 test-results/
 playwright-report/
 *.tsbuildinfo
-frontend/_tmp_*/
+frontend/_tmp_*
