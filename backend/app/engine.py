@@ -29,7 +29,7 @@ def number(value):
 
 def weights(value):
     if set(value) != set(["cash", *ALIASES]):
-        raise ValueError("현금 및 코인 A~D의 비중을 모두 입력하세요.")
+        raise ValueError("현금 및 네 코인의 비중을 모두 입력하세요.")
     value = {a: number(v) for a, v in value.items()}
     if any(v < 0 or v > 100 for v in value.values()) or sum(value.values()) != 100:
         raise ValueError("비중은 0~100% 범위이며 합계가 정확히 100%여야 합니다.")
@@ -356,6 +356,7 @@ class Engine:
             # 기존 세션의 판단·대화도 화면에는 같은 가명을 사용한다. 저장 원문은 보존한다.
             for alert in public["alerts"]:
                 alert["title"] = display_names(alert["title"])
+                alert["summary"] = display_names(alert["summary"])
             for choice in public["choices"]:
                 if "summary" in choice:
                     choice["summary"] = display_names(choice["summary"])

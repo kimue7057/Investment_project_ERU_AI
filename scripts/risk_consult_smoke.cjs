@@ -23,22 +23,22 @@ const out=path.resolve(__dirname,'../test-results'),prefix=base.startsWith('http
   fs.writeFileSync(path.join(out,prefix+'-session.json'),JSON.stringify({id:sid}));
   if(requireAI){const m=await ask('성향부터 같이 정하고 싶어. 균형형으로 현금 30%, 투자 70%를 제안해줘. 아직 종목은 선택하지 않았으니 코인 배분과 리스크 조건은 제안하지 마.');assert.deepEqual(m.setup_preference,{profile:'balanced',cash:30});assert.equal(m.weights,null);await page.getByRole('button',{name:'이 성향·자금 배분을 초안에 담기',exact:true}).click();assert.equal(await page.getByRole('button',{name:'균형형',exact:true}).getAttribute('aria-pressed'),'true');}
   await page.getByRole('button',{name:'균형형',exact:true}).click();await page.getByRole('button',{name:'이 성향으로 계속',exact:true}).click();
-  await page.getByRole('button',{name:'투자할 종목 고르기',exact:true}).click();await page.getByRole('checkbox',{name:'새벽코인 선택',exact:true}).check();
+  await page.getByRole('button',{name:'투자할 종목 고르기',exact:true}).click();await page.getByRole('checkbox',{name:'Asterra 선택',exact:true}).check();
   await page.getByRole('button',{name:'리스크 조건 상담하기',exact:true}).click();
   let expected;
   if(requireAI){
-   const m=await ask('기존 리스크 조건을 모두 대체해서 두 개만 만들자. 새벽코인이 수수료 포함 매수원가보다 8% 이상 손실이면 알림, 새벽코인이 전체 자산의 50% 이상이면 알림. 두 조건 모두 켜줘. 다른 조건과 비중 변경은 제안하지 마.');
+   const m=await ask('기존 리스크 조건을 모두 대체해서 두 개만 만들자. Asterra이 수수료 포함 매수원가보다 8% 이상 손실이면 알림, Asterra이 전체 자산의 50% 이상이면 알림. 두 조건 모두 켜줘. 다른 조건과 비중 변경은 제안하지 마.');
    assert.equal(m.weights,null);assert.equal(m.risk_rules.length,2);
    assert(m.risk_rules.some(r=>r.metric==='asset_loss'&&r.asset==='A'&&r.threshold===8&&r.enabled));
    assert(m.risk_rules.some(r=>r.metric==='concentration'&&r.asset==='A'&&r.threshold===50&&r.enabled));
    await page.getByRole('button',{name:'이 알림 조건을 초안에 담기',exact:true}).last().click();
-   const m2=await ask('방금 새벽코인의 매수원가 대비 손실 기준만 9%로 바꿔줘. 새벽코인 쏠림 50% 조건은 그대로, 전체 목록 두 개만 유지해줘. 비중 변경은 하지 마.');
+   const m2=await ask('방금 Asterra의 매수원가 대비 손실 기준만 9%로 바꿔줘. Asterra 쏠림 50% 조건은 그대로, 전체 목록 두 개만 유지해줘. 비중 변경은 하지 마.');
    assert.equal(m2.weights,null);assert.equal(m2.risk_rules.length,2);
    assert(m2.risk_rules.some(r=>r.metric==='asset_loss'&&r.asset==='A'&&r.threshold===9));
    assert(m2.risk_rules.some(r=>r.metric==='concentration'&&r.asset==='A'&&r.threshold===50));
    await page.getByRole('button',{name:'이 알림 조건을 초안에 담기',exact:true}).last().click();expected=m2.risk_rules;
   }else{
-   await ask('새벽코인 매수원가 대비 8% 손실 알림 조건을 만들고 싶어');
+   await ask('Asterra 매수원가 대비 8% 손실 알림 조건을 만들고 싶어');
    assert.equal(turns[0].source,'rules');assert.equal(turns[0].risk_rules,undefined);
    // 키 없는 경우 수동 편집도 같은 서버 조건으로 연결한다.
    for(let i=4;i>=2;i--)await page.getByRole('button',{name:`리스크 조건 ${i} 삭제`,exact:true}).click();

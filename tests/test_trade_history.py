@@ -47,7 +47,7 @@ def test_full_exit_keeps_realized_history_and_only_allowed_fields():
     assert D(totals[0]["quantity"])==0 and D(totals[0]["remaining_cost"])==0
     assert D(totals[0]["realized_pnl"])==D("5.967")
     assert D(totals[0]["total_pnl"])==D("5.967")
-    assert all(t["name"]=="새벽코인" for t in details)
+    assert all(t["name"]=="Asterra" for t in details)
     assert not any(k in details[0] for k in ("source_url","identity","future_event"))
     assert {t["id"] for t in details}=={"fill-0","fill-1"}
 
@@ -78,11 +78,14 @@ def test_existing_real_trade_events_match_server_ledger_without_migration():
 
 def test_old_display_text_changes_without_mutating_saved_history():
     e=Engine(Market());s=fresh(guided=True)
-    s["chat"]=[{"id":"old","at":s["now"],"question":"코인 A와 B는?","paragraphs":["A 60%, 코인 B 40%"],"source":"rules","status":"안내","weights":None}]
-    s["choices"]=[{"at":s["now"],"action":"trade","summary":"코인 A 매수 승인"}]
+    s["chat"]=[{"id":"old","at":s["now"],"question":"코인 A와 물결코인은?","paragraphs":["새벽코인 60%, 코인 B 40%"],"source":"rules","status":"안내","weights":None}]
+    s["choices"]=[{"at":s["now"],"action":"trade","summary":"새벽코인 매수 승인"}]
+    s["alerts"]=[{"title":"산들코인 손실 알림","summary":"노을코인과 코인 C를 다시 확인해요."}]
     before=copy.deepcopy(s);p=e.public(s)
     assert s==before
-    assert "새벽코인" in p["chat"][0]["question"] and "물결코인" in p["chat"][0]["paragraphs"][0]
-    assert p["choices"][0]["summary"]=="새벽코인 매수 승인"
+    assert "Asterra" in p["chat"][0]["question"] and "Velora" in p["chat"][0]["paragraphs"][0]
+    assert p["choices"][0]["summary"]=="Asterra 매수 승인"
+    assert p["alerts"][0]=={"title":"Nexora 손실 알림","summary":"Lumera와 Nexora를 다시 확인해요."}
     assert ASSET_NAMES=={a:p["name"] for a,p in zip("ABCD",p["asset_performance"])}
     assert display_names("AI · API · 코인 A~D") == "AI · API · 네 가지 코인"
+    assert display_names("Asterra · Velora · Nexora · Lumera") == "Asterra · Velora · Nexora · Lumera"

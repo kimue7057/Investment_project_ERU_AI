@@ -127,6 +127,23 @@ def test_rejected_and_superseded_proposals_do_not_become_accepted_context(game):
     assert ctx["setup"]["allocation"] is None and ctx["recent_discussion"][0]["choice"]=="declined"
 
 
+def test_asset_explanation_then_allocation_use_public_names_and_same_cash(game,monkeypatch):
+    setup={**SETUP,"phase":"assets","mode":"conversation","allocation":None}
+    texts=[f"{name}: {next(a for a in mentor.CATALOG if a['alias']==alias)['overview']}" for alias,name in mentor.ASSET_NAMES.items()]
+    replies=iter([answer(paragraphs=texts,fact_ids=[a+'.asset' for a in 'ABCD']),{"supported":True},
+                  answer(paragraphs=[texts[0],texts[1],"현금 30%를 유지하고 투자금의 60%와 40%로 나누는 구성을 제안해요."],fact_ids=['A.asset','B.asset','allocation'],allocation=PLAN,suggest_allocation=True),{"supported":True}])
+    monkeypatch.setattr(mentor.httpx,"post",lambda *a,**kw:response(next(replies)))
+    before=copy.deepcopy(game)
+    explanation=mentor.discuss(game,"코인의 특징부터 설명해줘. 비율은 아직 제안하지 마.",'A',CASH,setup)
+    assert explanation['source']=='ai' and explanation['weights'] is None
+    assert all(name in ' '.join(explanation['paragraphs']) for name in mentor.ASSET_NAMES.values())
+    proposal=mentor.discuss(game,"설명을 바탕으로 비중 제안해줘",'A',CASH,setup)
+    assert proposal['source']=='ai' and proposal['weights']==PLAN
+    assert game==before and game['initial_plan'] is None
+    context=mentor.context_for(game,'A',CASH,setup)
+    with pytest.raises(ValueError):mentor.validate_answer(answer(allocation={**PLAN,'cash':40,'A':32},suggest_allocation=True),context)
+
+
 @pytest.mark.parametrize("bad", [
     {"paragraphs": ["비트코인으로 매수해요."]},
     {"paragraphs": ["B\u200bTC가 올라요."]},
@@ -196,7 +213,7 @@ def test_rejected_rewrite_is_not_published_or_retried_forever(game,monkeypatch,c
     r=mentor.discuss(game,"어떤 상황에서 다시 판단하면 좋을까?","A",CASH,{**SETUP,"mode":"conversation","allocation":None,"risk_rules":None})
     assert len(calls)==4 and r["source"]=="rules" and r["retryable"] is True
     assert "재확인" in r["status"] and "private-unverified" not in json.dumps(r)
-    assert "새벽코인" not in " ".join(r["paragraphs"])
+    assert "Asterra" not in " ".join(r["paragraphs"])
     assert "repair_grounding_review" in caplog.text and "private-unverified" not in caplog.text
 
 
@@ -223,13 +240,13 @@ def test_risk_consultation_proposal_keeps_portfolio_and_rules_unconfirmed(game, 
     from backend.app.risk_policy import DEFAULT_RULES
     proposed = [*DEFAULT_RULES, {"metric":"asset_loss","asset":"A","threshold":8,"enabled":True}]
     before = copy.deepcopy(game)
-    replies = iter([answer(paragraphs=["새벽코인의 매수원가 대비 평가손실이 8% 이상이면 시장을 멈추고 함께 판단하는 조건을 제안해요. 최종 승인 전에는 적용되지 않아요."],fact_ids=["risk_policy"],risk_rules=proposed), {"supported":True}])
+    replies = iter([answer(paragraphs=["Asterra의 매수원가 대비 평가손실이 8% 이상이면 시장을 멈추고 함께 판단하는 조건을 제안해요. 최종 승인 전에는 적용되지 않아요."],fact_ids=["risk_policy"],risk_rules=proposed), {"supported":True}])
     def post(*args, **kw):
         ctx=json.loads(kw["json"]["messages"][1]["content"])["context"]
         assert ctx["setup"]["risk_rules"] == DEFAULT_RULES
         return response(next(replies))
     monkeypatch.setattr(mentor.httpx,"post",post)
-    r=mentor.discuss(game,"새벽코인 8% 손실 조건을 추가해줘","A",PLAN,{**SETUP,"step":3,"risk_rules":DEFAULT_RULES})
+    r=mentor.discuss(game,"Asterra 8% 손실 조건을 추가해줘","A",PLAN,{**SETUP,"step":3,"risk_rules":DEFAULT_RULES})
     assert r["source"]=="ai" and r["weights"] is None and r["risk_rules"]==proposed
     assert game==before and game["risk_rules"] is None
 

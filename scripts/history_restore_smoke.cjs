@@ -14,8 +14,8 @@ const {id}=JSON.parse(fs.readFileSync(sessionPath,'utf8').replace(/^\uFEFF/,''))
   if(process.env.ERU_EXPECT_FINISHED==='1')assert.equal(game.status,'finished');
   await page.goto(base);await page.getByRole('heading',{name:game.status==='finished'?'이번 투자 실험을 마쳤어요':/나의 투자 여정|지금, 어떤 선택이 좋을까요/}).waitFor();
   await page.getByRole('navigation',{name:'주 메뉴',exact:true}).getByRole('button',{name:'자산 살펴보기',exact:true}).click();
-  await page.getByRole('heading',{name:'새벽코인 거래 내역',exact:true}).waitFor();await page.waitForTimeout(2300);
-  assert.equal(await page.getByRole('heading',{name:'새벽코인 거래 내역',exact:true}).count(),1);
+  await page.getByRole('heading',{name:'Asterra 거래 내역',exact:true}).waitFor();await page.waitForTimeout(2300);
+  assert.equal(await page.getByRole('heading',{name:'Asterra 거래 내역',exact:true}).count(),1);
   assert.equal(await page.locator('.fill-card').count(),game.trades.filter(t=>t.asset==='A').length);
   if(game.status==='finished')assert.equal(await page.getByRole('button',{name:'AI와 매매 검토',exact:true}).count(),0);
   assert(!/코인\s*[ABCD]/.test(await page.locator('main').innerText()));assert.equal(errors.length,0);

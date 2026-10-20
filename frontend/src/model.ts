@@ -1,8 +1,8 @@
 export const aliases = ['A', 'B', 'C', 'D'] as const;
 export type Alias = typeof aliases[number];
-export const assetNames: Record<Alias,string> = {A:'새벽코인',B:'물결코인',C:'산들코인',D:'노을코인'};
+export const assetNames: Record<Alias,string> = {A:'Asterra',B:'Velora',C:'Nexora',D:'Lumera'};
 export const assetName = (a:string) => a === 'cash' ? '현금' : assetNames[a as Alias] ?? '자산';
-export const assetShort = (a:string) => a === 'cash' ? '₩' : assetName(a).replace('코인','');
+export const assetShort = (a:string) => a === 'cash' ? '₩' : assetName(a).slice(0,2).toUpperCase();
 export type Allocation = Record<Alias | 'cash', number>;
 export const initialWeights: Allocation = { cash: 20, A: 30, B: 20, C: 15, D: 15 };
 export const money = (n: number | string) => '₩' + Math.round(Number(n)).toLocaleString('ko-KR');
