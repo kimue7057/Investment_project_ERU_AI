@@ -117,7 +117,9 @@ def test_valid_proposal_is_only_a_draft(game, monkeypatch):
 
 
 @pytest.mark.parametrize("status,code,expected", [(401, "invalid_api_key", "키 인증"),
+    (401, "ip_not_authorized", "IP 허용 목록"),
     (429, "insufficient_quota", "잔액·결제"), (429, "rate_limit_exceeded", "요청 한도"),
+    (429, "credit_balance_exhausted", "잔액·결제"),
     (404, "model_not_found", "모델 권한"), (500, "server_error", "일시 연결")])
 def test_errors_are_actionable_without_secrets(game, monkeypatch, status, code, expected):
     monkeypatch.setattr(mentor.httpx, "post", lambda *a, **kw: httpx.Response(status, json={
@@ -131,6 +133,19 @@ def test_no_key_never_uses_gateway(game, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY")
     monkeypatch.setattr(mentor.httpx, "post", lambda *a, **kw: pytest.fail("Gateway로 우회하면 안 됩니다."))
     assert mentor.discuss(game, "현금 이자는?", "A", PLAN)["source"] == "rules"
+
+
+@pytest.mark.parametrize("value", ['  test-not-a-real-key\n', '"test-not-a-real-key"',
+    "'test-not-a-real-key'", 'Bearer test-not-a-real-key', '"Bearer test-not-a-real-key"'])
+def test_pasted_key_wrappers_are_removed_without_exposing_value(game, monkeypatch, value):
+    monkeypatch.setenv("OPENAI_API_KEY", value)
+    def post(*a, **kw):
+        assert kw["headers"]["Authorization"] == "Bearer test-not-a-real-key"
+        return httpx.Response(401, json={"error": {"code": "invalid_api_key"}})
+    monkeypatch.setattr(mentor.httpx, "post", post)
+    reply = mentor.discuss(game, "현금 이자는?", "A", PLAN)
+    assert "새 API 키로 교체" in reply["status"]
+    assert "test-not-a-real-key" not in json.dumps(reply)
 
 
 def test_explicit_identifiers_block_but_general_future_discussion_allowed(game, monkeypatch):

@@ -111,6 +111,16 @@ def private_text(text):
     return bool(PRIVATE.search(normalized) or PRIVATE.search(re.sub(r"\s+", "", normalized)))
 
 
+def api_key():
+    """환경변수 붙여넣기의 바깥 공백·따옴표·Bearer 접두사만 정리한다."""
+    token = os.getenv("OPENAI_API_KEY", "").strip()
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in ("'", '"'):
+        token = token[1:-1].strip()
+    if token.lower().startswith("bearer "):
+        token = token[7:].strip()
+    return token
+
+
 def generate(token, model, instructions, content, schema, *, review=False):
     response = httpx.post("https://api.openai.com/v1/responses", headers={"Authorization": "Bearer " + token},
         timeout=httpx.Timeout(10 if review else 22, connect=5),
@@ -126,8 +136,12 @@ def generate(token, model, instructions, content, schema, *, review=False):
         except (ValueError, AttributeError):
             pass
         if response.status_code == 401:
+            if code == "ip_not_authorized":
+                raise ReplyError("OpenAI 프로젝트 IP 허용 목록 확인 필요")
+            if code == "invalid_api_key":
+                raise ReplyError("OpenAI 키 인증 실패 · 새 API 키로 교체 필요")
             raise ReplyError("OpenAI 키 인증 실패")
-        if code in ("insufficient_quota", "billing_hard_limit_reached", "billing_not_active"):
+        if code in ("insufficient_quota", "credit_balance_exhausted", "billing_hard_limit_reached", "billing_not_active"):
             raise ReplyError("OpenAI API 잔액·결제 설정 확인 필요")
         if response.status_code == 429:
             raise ReplyError("OpenAI 요청 한도 초과 · 잠시 후 다시 질문")
@@ -180,7 +194,7 @@ def discuss(game, question, asset, draft, setup=None):
     profile = "cautious" if any(w in question for w in ("보수", "안정", "안전")) else "active" if "공격" in question else "balanced"
     allocation = None
     status = "규칙 기반 안내 · OpenAI 키 미등록"
-    token = os.getenv("OPENAI_API_KEY")
+    token = api_key()
     if restricted:
         return {"question": public_question, "paragraphs": ["게임 시점의 익명 자산과 확인된 정보만 함께 검토할 수 있습니다. 실제 이름·미래 사건·미래 금리는 종료 전에 안내하지 않습니다.", facts["execute"]], "source": "boundary", "status": "공개 범위 안내", "weights": None}
     if token:
