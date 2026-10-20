@@ -1,35 +1,32 @@
 import {describe,it,expect} from 'vitest';
-import {absorbReplies,emptyConsultation,consultationContext,consultationReady,restoreConsultation} from './conversation';
+import {emptyConsultation,chooseProposal,movePhase,phaseReady,consultationContext,consultationReady,restoreConsultation,canChoose} from './conversation';
 import type {Discussion} from './model';
-
-const reply=(id:string,patch:Partial<Discussion>={}):Discussion=>({id,at:'',question:'',paragraphs:['함께 정해요'],source:'ai',status:'',weights:null,...patch});
+const reply=(id:string,patch:Partial<Discussion>={}):Discussion=>({id,at:'',question:'',paragraphs:[],source:'ai',status:'',weights:null,...patch});
+const portfolio=reply('p',{phase:'portfolio',setup_preference:{profile:'balanced',cash:30}});
 const allocation={cash:30,A:42,B:28,C:0,D:0};
-const rules=[{metric:'portfolio_loss' as const,asset:'portfolio' as const,threshold:10,enabled:true}];
-describe('한 대화에서 만드는 미승인 상담 계획',()=>{
-  it('새 상담은 성향·자산·조건을 미리 확정하지 않고 세 내용을 한 응답으로 정리할 수 있다',()=>{
-    const start=emptyConsultation();expect(consultationReady(start)).toBe(false);expect(consultationContext(start).risk_rules).toBeNull();
-    const s=absorbReplies(start,[reply('1',{weights:allocation,setup_preference:{profile:'balanced',cash:30},risk_rules:rules})]);
-    expect(consultationReady(s)).toBe(true);expect(s.allocation).toEqual(allocation);expect(s.rules).toEqual(rules);
-    expect(consultationContext(s).allocation).toEqual(allocation);expect(restoreConsultation(JSON.stringify(s))).toEqual(s);
-  });
-  it('질문·비교와 연결 실패 안내는 계획으로 오인하지 않고 조건만 수정하면 구성을 보존한다',()=>{
-    let s=absorbReplies(emptyConsultation(),[reply('1',{weights:allocation,setup_preference:{profile:'balanced',cash:30},risk_rules:rules})]);
-    s=absorbReplies(s,[reply('2'),reply('3',{source:'rules',weights:{cash:10,A:90,B:0,C:0,D:0}}),reply('4',{risk_rules:[{...rules[0],threshold:8}]})]);
-    expect(s.allocation).toEqual(allocation);expect(s.rules?.[0].threshold).toBe(8);
-    expect(absorbReplies(s,[reply('1',{weights:{cash:100,A:0,B:0,C:0,D:0}})])).toBe(s);
-  });
-  it('현금 비중 대화 수정은 기존 종목 비율과 합계 100을 보존하고 전액 현금에서 투자로 돌아오면 다시 구성한다',()=>{
-    let s=absorbReplies(emptyConsultation(),[reply('1',{weights:allocation})]);
-    s=absorbReplies(s,[reply('2',{setup_preference:{profile:'cautious',cash:60}})]);
-    expect(s.allocation).toEqual({cash:60,A:24,B:16,C:0,D:0});
-    s=absorbReplies(s,[reply('3',{setup_preference:{profile:'cautious',cash:100}})]);
-    expect(s.allocation).toEqual({cash:100,A:0,B:0,C:0,D:0});
-    s=absorbReplies(s,[reply('4',{setup_preference:{profile:'balanced',cash:30}})]);
-    expect(s.allocation).toBeNull();expect(consultationReady(s)).toBe(false);
-  });
-  it('조건 미논의와 명시적으로 알림을 끈 계획을 구분한다',()=>{
-    const s=absorbReplies(emptyConsultation(),[reply('1',{setup_preference:{profile:'cautious',cash:100}})]);
-    expect(consultationReady(s)).toBe(false);
-    expect(consultationReady(absorbReplies(s,[reply('2',{risk_rules:[]})]))).toBe(true);
-  });
+const asset=reply('a',{phase:'assets',weights:allocation,setup_basis:{profile:'balanced',cash:30,allocation:null}});
+const rules=reply('r',{phase:'rules',risk_rules:[{metric:'asset_loss',asset:'held',threshold:10,enabled:true}],setup_basis:{profile:'balanced',cash:30,allocation}});
+describe('사용자가 선택하며 진행하는 세 AI 상담 페이지',()=>{
+ it('제안을 받거나 거절하기만 하면 계획은 바뀌지 않고 다음 페이지에 갈 수 없다',()=>{
+  const start=emptyConsultation();expect(phaseReady(start)).toBe(false);expect(movePhase(start,'assets')).toBe(start);
+  const s=chooseProposal(start,portfolio,'declined');expect(s.profile).toBeNull();expect(s.choices.p).toBe('declined');expect(phaseReady(s)).toBe(false);
+ });
+ it('각 페이지 선택만 맥락에 전달하며 세 가지를 선택해야 전체 검토가 가능하다',()=>{
+  let s=chooseProposal(emptyConsultation(),portfolio,'accepted');expect(phaseReady(s)).toBe(true);expect(consultationReady(s)).toBe(false);
+  s=movePhase(s,'assets');expect(consultationContext(s).profile).toBe('balanced');expect(s.allocation).toBeNull();
+  s=movePhase(chooseProposal(s,asset,'accepted'),'rules');expect(consultationContext(s).allocation).toEqual(allocation);expect(s.rules).toBeNull();
+  s=chooseProposal(s,rules,'accepted');expect(consultationReady(s)).toBe(true);expect(restoreConsultation(JSON.stringify(s))).toEqual(s);
+ });
+ it('이전 배분 변경은 자산·조건 선택을 해제하고 오래된 제안을 차단한다',()=>{
+  let s=chooseProposal(movePhase(chooseProposal(emptyConsultation(),portfolio,'accepted'),'assets'),asset,'accepted');
+  s=movePhase(chooseProposal(movePhase(s,'rules'),rules,'accepted'),'portfolio');
+  s=chooseProposal(s,reply('new',{phase:'portfolio',setup_preference:{profile:'cautious',cash:60}}),'accepted');
+  expect(s.allocation).toBeNull();expect(s.rules).toBeNull();expect(s.selected.assets).toBeUndefined();
+  s=movePhase(s,'assets');expect(canChoose(s,asset)).toBe(false);expect(chooseProposal(s,asset,'accepted')).toBe(s);
+ });
+ it('다른 페이지·대체 안내는 선택 불가하며 알림 없음도 명시적으로 선택해야 한다',()=>{
+  expect(canChoose(emptyConsultation(),{...portfolio,source:'rules'})).toBe(false);expect(canChoose(emptyConsultation(),asset)).toBe(false);
+  let s=movePhase(chooseProposal(movePhase(chooseProposal(emptyConsultation(),portfolio,'accepted'),'assets'),asset,'accepted'),'rules');
+  expect(consultationReady(s)).toBe(false);s=chooseProposal(s,{...rules,risk_rules:[]},'accepted');expect(consultationReady(s)).toBe(true);expect(s.rules).toEqual([]);
+ });
 });

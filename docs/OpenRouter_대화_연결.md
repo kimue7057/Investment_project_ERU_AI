@@ -32,7 +32,7 @@
 
 ## 검증
 
-백엔드 전체 pytest, 기존 archive unittest 10개, 프론트엔드 타입 검사·테스트·빌드를 실행합니다. 브라우저 실제 연결 검증은 `ERU_BASE_URL=https://eru-ai-investment-simulator.vercel.app`, `ERU_REQUIRE_AI=1`로 `scripts/conversation_smoke.cjs`를 실행합니다. 현행 초기 화면은 [대화로 만드는 초기 계획](대화로_만드는_초기계획.md)을 따릅니다. `scripts/guided_smoke.cjs`의 단계형 초기 진입은 이전 UI 검증 기록이며, 현재는 새 상담 스크립트와 기존 게임 복원 스크립트를 사용합니다. 원시 세션·화면·대화 결과는 Git에서 제외한 test-results에 저장합니다.
+백엔드 전체 pytest, 기존 archive unittest 10개, 프론트엔드 타입 검사·테스트·빌드를 실행합니다. 브라우저 실제 연결 검증은 `ERU_BASE_URL=https://eru-ai-investment-simulator.vercel.app`, `ERU_REQUIRE_AI=1`로 `scripts/conversation_smoke.cjs`를 실행합니다. 현행 초기 화면은 [세 상담 페이지와 사용자 선택](세_상담페이지와_사용자선택.md)을 따릅니다. `scripts/guided_smoke.cjs`의 단계형 초기 진입은 이전 UI 검증 기록이며, 현재는 새 상담 스크립트와 기존 게임 복원 스크립트를 사용합니다. 원시 세션·화면·대화 결과는 Git에서 제외한 test-results에 저장합니다.
 
 공식 근거: [인증](https://openrouter.ai/docs/api_reference/authentication), [API 연결](https://openrouter.ai/docs/quickstart), [구조화 출력](https://openrouter.ai/docs/guides/features/structured-outputs), [추론 설정](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens).
 

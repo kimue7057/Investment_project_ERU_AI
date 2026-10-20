@@ -265,7 +265,7 @@ def test_conversation_api_keeps_unset_plan_and_conditions_unconfirmed(client,mon
     setup={"mode":"conversation","profile":None,"step":0,"cash":30,"selected":[],
            "shares":dict.fromkeys("ABCD",0),"allocation":None,"risk_rules":None}
     def reply(snapshot,question,asset,draft,received):
-        assert received==setup and snapshot["status"]=="ready"
+        assert received=={**setup,"phase":None,"proposal_choices":{}} and snapshot["status"]=="ready"
         return {"question":question,"paragraphs":["투자에서 어떤 점이 가장 걱정되시나요?"],"weights":None,"source":"ai","status":"검증용"}
     monkeypatch.setattr(main,"discuss",reply)
     r=client.post("/api/sessions/"+g["id"]+"/chat",json={"request_id":str(uuid.uuid4()),"question":"함께 계획을 만들어줘","draft":CASH,"setup":setup})

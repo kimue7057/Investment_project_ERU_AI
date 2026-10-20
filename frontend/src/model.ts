@@ -25,8 +25,9 @@ export type Game = {mode?: "paper"; fee_rate?: number; id: string; status: 'read
 
 export type RiskRule = {metric:'concentration'|'asset_loss'|'daily_drop'|'portfolio_loss'; asset:Alias|'held'|'portfolio'; threshold:number; enabled:boolean};
 export type SetupPreference = {profile:'cautious'|'balanced'|'active';cash:number};
-export type Discussion = {id: string; at: string; question: string; paragraphs: string[]; source: 'ai'|'rules'|'boundary'; status: string; weights: Allocation | null; risk_rules?:RiskRule[]; setup_preference?:SetupPreference};
-export type SetupContext = {mode?:'conversation'; allocation?:Allocation|null; profile: 'cautious'|'balanced'|'active'|null; step: number; cash: number; selected: Alias[]; shares: Record<Alias,number>; risk_rules?:RiskRule[]|null};
+export type SetupPhase = 'portfolio'|'assets'|'rules';
+export type Discussion = {id: string; at: string; question: string; paragraphs: string[]; source: 'ai'|'rules'|'boundary'; status: string; weights: Allocation | null; risk_rules?:RiskRule[]; setup_preference?:SetupPreference; retryable?:boolean; phase?:SetupPhase; setup_basis?:{profile:SetupPreference['profile']|null;cash:number;allocation:Allocation|null}};
+export type SetupContext = {mode?:'conversation'; phase?:SetupPhase; proposal_choices?:Record<string,'accepted'|'declined'|'superseded'>; allocation?:Allocation|null; profile: 'cautious'|'balanced'|'active'|null; step: number; cash: number; selected: Alias[]; shares: Record<Alias,number>; risk_rules?:RiskRule[]|null};
 export type GuidedGame = Omit<Game, 'mode'|'trades'> & {mode: 'guided'; initial_plan: Record<string,string> | null; trades:FilledTrade[]; asset_performance:AssetPerformance[];
   risk_rules:RiskRule[]|null;
   interest_account: {accrued: number; annual_rate: number; principal: number; reserved: number; available: number; settled: boolean; policy: string; terms: string};

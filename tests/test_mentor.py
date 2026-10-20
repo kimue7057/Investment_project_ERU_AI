@@ -110,6 +110,22 @@ def test_context_rounding_matches_exact_hundred(game):
     assert ctx["setup"]["allocation"] == {"cash": 33.33, "A": 22.22, "B": 22.22, "C": 22.23, "D": 0}
 
 
+@pytest.mark.parametrize("phase,proposal",[
+    ("portfolio",{"allocation":PLAN,"suggest_allocation":True}),
+    ("assets",{"setup_preference":{"profile":"active","cash":10}}),
+    ("rules",{"allocation":PLAN,"suggest_allocation":True})])
+def test_page_proposals_cannot_silently_change_another_page(game,phase,proposal):
+    setup={**SETUP,"phase":phase,"mode":"conversation","allocation":PLAN,"proposal_choices":{}}
+    ctx=mentor.context_for(game,"A",PLAN,setup)
+    with pytest.raises(ValueError):mentor.validate_answer(answer(**proposal),ctx)
+
+
+def test_rejected_and_superseded_proposals_do_not_become_accepted_context(game):
+    game["chat"]=[{"id":"old","question":"다른 구성은?","paragraphs":["제안입니다"],"source":"ai","weights":PLAN,"phase":"assets"}]
+    ctx=mentor.context_for(game,"A",PLAN,{**SETUP,"mode":"conversation","phase":"assets","allocation":None,"proposal_choices":{"old":"declined"}})
+    assert ctx["setup"]["allocation"] is None and ctx["recent_discussion"][0]["choice"]=="declined"
+
+
 @pytest.mark.parametrize("bad", [
     {"paragraphs": ["비트코인으로 매수해요."]},
     {"paragraphs": ["B\u200bTC가 올라요."]},
@@ -135,10 +151,62 @@ def test_invalid_or_private_generated_reply_fails_closed(game, monkeypatch, bad)
 
 
 def test_new_unverified_market_event_fails_grounding_review(game, monkeypatch):
-    replies = iter([answer(paragraphs=["대형 거래소의 파산이 예정돼 있으니 매도하세요."]), {"supported": False}])
+    replies = iter([answer(paragraphs=["대형 거래소의 파산이 예정돼 있으니 매도하세요."]), {"supported": False},
+                    answer(paragraphs=["대형 거래소의 파산이 예정돼 있으니 매도하세요."]), {"supported": False}])
     monkeypatch.setattr(mentor.httpx, "post", lambda *a, **kw: response(next(replies)))
     r = mentor.discuss(game, "앞으로 어떻게 될까?", "A", PLAN)
     assert r["source"] == "rules" and "파산" not in " ".join(r["paragraphs"])
+
+
+def test_failed_guide_is_not_carried_as_assistant_advice_but_user_intent_survives(game):
+    game["chat"]=[{"question":"10% 이상이면 매도, 매수 조건도 중요해","paragraphs":["안전한 매수 판단을 함께 논의해요"],"source":"ai"},
+                  {"question":"매수한 종목의 원가 대비로","paragraphs":["무관한 종목 설명 must-not-follow"],"source":"rules","weights":PLAN}]
+    ctx=mentor.context_for(game,"A",CASH,{**SETUP,"mode":"conversation","allocation":None,"risk_rules":None})
+    assert "10%" in ctx["recent_discussion"][0]["question"]
+    failed=ctx["recent_discussion"][1]
+    assert failed["question"]=="매수한 종목의 원가 대비로" and failed["paragraphs"]==[] and failed["weights"] is None
+    assert "must-not-follow" not in json.dumps(ctx)
+    assert "entry_discussion" in ctx["facts"]
+
+
+def test_rejected_explanation_is_rewritten_once_with_same_public_history(game,monkeypatch):
+    game["chat"]=[{"question":"10% 이상이면 매도 해야할것같아. 근데 매수 조건이 중요한것같아","paragraphs":["매수원가와 전체 자산 중 어느 기준인가요?"],"source":"ai"}]
+    rules=[{"metric":"asset_loss","asset":"held","threshold":10,"enabled":True}]
+    safe=answer(paragraphs=["보유한 각 종목의 매수원가 대비 손실 10%를 재논의 기준으로 정리할게요. 매수는 한 번에 투자할 금액과 남길 현금을 비교하며 함께 정할 수 있어요."],fact_ids=["risk_policy","entry_discussion"],risk_rules=rules)
+    replies=iter([answer(),{"supported":False},safe,{"supported":True}]);calls=[]
+    def post(*a,**kw):
+        calls.append(kw)
+        payload=json.loads(kw["json"]["messages"][1]["content"])
+        assert "10%" in payload["context"]["recent_discussion"][0]["question"]
+        return response(next(replies))
+    monkeypatch.setattr(mentor.httpx,"post",post)
+    before=copy.deepcopy(game)
+    r=mentor.discuss(game,"매수한 종목의 매수 원가 대비 손실로","A",CASH,{**SETUP,"mode":"conversation","allocation":None,"risk_rules":None})
+    assert r["source"]=="ai" and r["risk_rules"]==rules and len(calls)==4 and game==before
+    assert calls[2]["timeout"].read<=6 and calls[3]["timeout"].read<=4
+
+
+def test_rejected_rewrite_is_not_published_or_retried_forever(game,monkeypatch,caplog):
+    calls=[]
+    def post(*a,**kw):
+        calls.append(kw)
+        return response({"supported":False} if len(calls)%2==0 else answer(paragraphs=["확인되지 않은 새 시장 사실 private-unverified"]))
+    monkeypatch.setattr(mentor.httpx,"post",post)
+    r=mentor.discuss(game,"어떤 상황에서 다시 판단하면 좋을까?","A",CASH,{**SETUP,"mode":"conversation","allocation":None,"risk_rules":None})
+    assert len(calls)==4 and r["source"]=="rules" and r["retryable"] is True
+    assert "재확인" in r["status"] and "private-unverified" not in json.dumps(r)
+    assert "새벽코인" not in " ".join(r["paragraphs"])
+    assert "repair_grounding_review" in caplog.text and "private-unverified" not in caplog.text
+
+
+def test_repair_respects_total_response_budget(game,monkeypatch):
+    times=iter([0,35]);monkeypatch.setattr(mentor.time,"monotonic",lambda:next(times))
+    replies=iter([answer(),{"supported":False}]);calls=[]
+    def post(*a,**kw):
+        calls.append(kw);return response(next(replies))
+    monkeypatch.setattr(mentor.httpx,"post",post)
+    r=mentor.discuss(game,"매수는 어떻게 판단할까?","A",CASH,{**SETUP,"mode":"conversation","allocation":None,"risk_rules":None})
+    assert len(calls)==2 and r["source"]=="rules" and r["retryable"] is True
 
 
 def test_valid_proposal_is_only_a_draft(game, monkeypatch):

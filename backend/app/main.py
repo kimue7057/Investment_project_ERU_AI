@@ -110,6 +110,8 @@ class Decision(Strict):
 
 class SetupContext(Strict):
     mode: Literal["conversation"] | None = None
+    phase: Literal["portfolio", "assets", "rules"] | None = None
+    proposal_choices: dict[str, Literal["accepted", "declined", "superseded"]] = Field(default_factory=dict, max_length=40)
     allocation: dict[str, float] | None = None
     profile: Literal["cautious", "balanced", "active"] | None = None
     step: int = Field(ge=0, le=4)
@@ -417,7 +419,9 @@ def chat(sid: str, body: Chat):
         if s.get("chat_request") != request_id or s["now"] != snapshot["now"] or s["status"] != snapshot["status"]:
             raise ValueError("논의 중 투자 상태가 바뀌었습니다. 현재 상태에서 다시 질문하세요.")
         if not any(c["id"] == request_id for c in s["chat"]):
-            s["chat"].append({"id": request_id, "at": s["now"], **reply})
+            metadata = ({"phase": setup["phase"], "setup_basis": {k: setup[k] for k in ("profile", "cash", "allocation")}}
+                        if setup and setup.get("phase") else {})
+            s["chat"].append({"id": request_id, "at": s["now"], **reply, **metadata})
     return update(sid, finish, body.asset)
 
 
