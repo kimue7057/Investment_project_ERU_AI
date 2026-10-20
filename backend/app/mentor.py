@@ -1,4 +1,4 @@
-"""OpenAI 직접 대화. 공개 사실만 전달하고 답변·제안을 검증한 뒤 허용 필드만 반환한다."""
+"""OpenRouter 대화. 공개 사실만 전달하고 답변·제안을 검증한 뒤 허용 필드만 반환한다."""
 import json
 import os
 import re
@@ -10,7 +10,7 @@ import httpx
 from .engine import weights
 from .market import CATALOG
 
-MODEL = "gpt-6-luna"
+MODEL = "openai/gpt-6-luna"
 PRIVATE = re.compile(r"https?://|www\.|bitcoin|ethereum|solana|dogecoin|(?<![a-z])(?:BTC|ETH|SOL|DOGE|FTX|LUNA)(?![a-z])|비트코인|이더리움|솔라나|도지코인|실제.{0,3}이름|진짜.{0,3}이름|sk-[a-z0-9-]{8,}", re.I)
 YEARS = re.compile(r"(?<!\d)20\d{2}(?!\d)")
 PROMPT = """너는 ERU 모의투자의 한국어 투자 교육 코치다. 사용자와 함께 이유를 따져 계획을 수정한다.
@@ -113,7 +113,7 @@ def private_text(text):
 
 def api_key():
     """환경변수 붙여넣기의 바깥 공백·따옴표·Bearer 접두사만 정리한다."""
-    token = os.getenv("OPENAI_API_KEY", "").strip()
+    token = os.getenv("OPENROUTER_API_KEY", "").strip()
     if len(token) >= 2 and token[0] == token[-1] and token[0] in ("'", '"'):
         token = token[1:-1].strip()
     if token.lower().startswith("bearer "):
@@ -122,13 +122,14 @@ def api_key():
 
 
 def generate(token, model, instructions, content, schema, *, review=False):
-    response = httpx.post("https://api.openai.com/v1/responses", headers={"Authorization": "Bearer " + token},
+    response = httpx.post("https://openrouter.ai/api/v1/chat/completions", headers={"Authorization": "Bearer " + token},
         timeout=httpx.Timeout(10 if review else 22, connect=5),
-        json={"model": model, "store": False, "max_output_tokens": 600 if review else 2400,
-              "reasoning": {"effort": "low"}, "instructions": instructions,
-              "input": [{"role": "user", "content": json.dumps(content, ensure_ascii=False)}],
-              "text": {"format": {"type": "json_schema", "name": "answer_review" if review else "investment_discussion",
-                                  "strict": True, "schema": schema}}})
+        json={"model": model, "stream": False, "max_tokens": 600 if review else 2400,
+              "reasoning": {"effort": "low", "exclude": True}, "provider": {"require_parameters": True},
+              "messages": [{"role": "system", "content": instructions},
+                           {"role": "user", "content": json.dumps(content, ensure_ascii=False)}],
+              "response_format": {"type": "json_schema", "json_schema": {
+                  "name": "answer_review" if review else "investment_discussion", "strict": True, "schema": schema}}})
     if response.status_code != 200:
         code = ""
         try:
@@ -137,23 +138,25 @@ def generate(token, model, instructions, content, schema, *, review=False):
             pass
         if response.status_code == 401:
             if code == "ip_not_authorized":
-                raise ReplyError("OpenAI 프로젝트 IP 허용 목록 확인 필요")
-            if code == "invalid_api_key":
-                raise ReplyError("OpenAI 키 인증 실패 · 새 API 키로 교체 필요")
-            raise ReplyError("OpenAI 키 인증 실패")
-        if code in ("insufficient_quota", "credit_balance_exhausted", "billing_hard_limit_reached", "billing_not_active"):
-            raise ReplyError("OpenAI API 잔액·결제 설정 확인 필요")
+                raise ReplyError("OpenRouter 키의 IP 제한 확인 필요")
+            raise ReplyError("OpenRouter 키 인증 실패 · 새 API 키로 교체 필요")
+        if response.status_code == 402 or code in ("insufficient_quota", "credit_balance_exhausted", "billing_hard_limit_reached", "billing_not_active"):
+            raise ReplyError("OpenRouter 크레딧 잔액·키 사용 한도 확인 필요")
         if response.status_code == 429:
-            raise ReplyError("OpenAI 요청 한도 초과 · 잠시 후 다시 질문")
+            raise ReplyError("OpenRouter 요청 한도 초과 · 잠시 후 다시 질문")
         if response.status_code in (400, 403, 404):
-            raise ReplyError("OpenAI 모델 권한 또는 설정 확인 필요")
-        raise ReplyError("OpenAI 일시 연결 실패")
+            raise ReplyError("OpenRouter 모델 권한·구조화 출력 설정 확인 필요")
+        raise ReplyError("OpenRouter 제공업체 일시 연결 실패")
     body = response.json()
-    if body.get("status") != "completed":
+    if body.get("error"):
+        raise ReplyError("OpenRouter 응답 처리 실패")
+    choices = body.get("choices")
+    if not isinstance(choices, list) or len(choices) != 1 or choices[0].get("finish_reason") != "stop":
         raise ReplyError("AI 답변 생성 미완료 · 다시 질문해 주세요")
-    texts = [c["text"] for item in body.get("output", []) if item.get("type") == "message"
-             for c in item.get("content", []) if c.get("type") == "output_text"]
-    return json.loads("".join(texts))
+    message = choices[0]["message"]
+    if message.get("refusal") or not isinstance(message.get("content"), str):
+        raise ReplyError("AI 답변을 사용할 수 없음 · 다시 질문해 주세요")
+    return json.loads(message["content"])
 
 
 def validate_answer(result, context):
@@ -193,14 +196,14 @@ def discuss(game, question, asset, draft, setup=None):
         fallback = ["allocation", "cash", "risk", "fee"]
     profile = "cautious" if any(w in question for w in ("보수", "안정", "안전")) else "active" if "공격" in question else "balanced"
     allocation = None
-    status = "규칙 기반 안내 · OpenAI 키 미등록"
+    status = "규칙 기반 안내 · OpenRouter 키 미등록"
     token = api_key()
     if restricted:
         return {"question": public_question, "paragraphs": ["게임 시점의 익명 자산과 확인된 정보만 함께 검토할 수 있습니다. 실제 이름·미래 사건·미래 금리는 종료 전에 안내하지 않습니다.", facts["execute"]], "source": "boundary", "status": "공개 범위 안내", "weights": None}
     if token:
         try:
             context = context_for(game, asset, draft, setup)
-            model = os.getenv("OPENAI_MODEL", MODEL)
+            model = os.getenv("OPENROUTER_MODEL", MODEL)
             result = generate(token, model, PROMPT, {"context": context, "question": question}, schema_for(context["facts"]))
             paragraphs, allocation = validate_answer(result, context)
             # 생성과 별개로 근거를 다시 검토한다. 허용 사실 밖 사건·시세는 실패 시 공개하지 않는다.
@@ -214,13 +217,13 @@ def discuss(game, question, asset, draft, setup=None):
             if not isinstance(review, dict) or review.get("supported") is not True:
                 raise ValueError("공개 사실 근거 검토 실패")
             return {"question": public_question, "paragraphs": paragraphs, "weights": allocation,
-                    "source": "ai", "status": "OpenAI 직접 연결 · " + model}
+                    "source": "ai", "status": "OpenRouter 연결 · " + model}
         except ReplyError as exc:
             status = "규칙 기반 안내 · " + str(exc)
         except httpx.TimeoutException:
-            status = "규칙 기반 안내 · OpenAI 응답 시간 초과"
+            status = "규칙 기반 안내 · OpenRouter 응답 시간 초과"
         except httpx.HTTPError:
-            status = "규칙 기반 안내 · OpenAI 연결 실패"
+            status = "규칙 기반 안내 · OpenRouter 연결 실패"
         except (ValueError, KeyError, TypeError, AttributeError):
             status = "규칙 기반 안내 · AI 답변의 공개 사실 검증 실패"
     if any(w in question for w in ("추천", "구성", "비중", "보수", "안정", "균형", "성향", "공격")):

@@ -30,7 +30,7 @@ E/F/G는 확정하지 않았습니다. 유동성 대기 자금, 정기예금·�
 
 ## 초기 AI Gateway 연동 기록 (이전 구현)
 
-현재 구현은 [OpenAI 직접 연결과 대화 개편](OpenAI_직접_대화.md)으로 대체되었습니다. 아래 내용은 규칙 기반 테스트 당시의 기록입니다.
+현재 구현은 [OpenRouter 대화 연결](OpenRouter_대화_연결.md)로 대체되었습니다. 아래 내용은 규칙 기반 테스트 당시의 기록입니다.
 
 Python의 기존 httpx로 [Vercel AI Gateway Chat Completions REST](https://vercel.com/docs/ai-gateway/openai-compat/rest-api)를 사용합니다. 배포의 OIDC 인증을 사용하며 개발 환경은 서버 전용 AI_GATEWAY_API_KEY 또는 VERCEL_OIDC_TOKEN을 지원합니다. 자격증명은 브라우저에 노출하지 않습니다.
 

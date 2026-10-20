@@ -1,5 +1,7 @@
 # OpenAI 직접 연결과 대화 개편
 
+> 이전 구현 기록입니다. 현재 연결은 [OpenRouter 대화 연결](OpenRouter_대화_연결.md)로 전환했습니다.
+
 ## 현재 구성
 
 Vercel은 앱 배포와 기존 비공개 세션 저장을 담당합니다. AI 요청은 Python 서버에서 OpenAI Responses API로 직접 보냅니다. Gateway 키와 OIDC를 AI 호출에 사용하지 않습니다.

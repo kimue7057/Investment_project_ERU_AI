@@ -18,16 +18,17 @@ SETUP = {"profile": "balanced", "step": 2, "cash": 30, "selected": ["A", "B"],
 
 @pytest.fixture
 def game(monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "test-not-a-real-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-not-a-real-key")
+    monkeypatch.setenv("OPENAI_API_KEY", "must-not-use")
     monkeypatch.setenv("AI_GATEWAY_API_KEY", "must-not-use")
     monkeypatch.setenv("VERCEL_OIDC_TOKEN", "must-not-use")
-    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+    monkeypatch.delenv("OPENROUTER_MODEL", raising=False)
     return Engine(Market()).public(fresh(guided=True))
 
 
 def response(result):
-    return httpx.Response(200, json={"status": "completed", "output": [{"type": "message", "content": [
-        {"type": "output_text", "text": json.dumps(result, ensure_ascii=False)}]}]})
+    return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {
+        "content": json.dumps(result, ensure_ascii=False), "reasoning": "must-not-publish"}}]})
 
 
 def answer(**changes):
@@ -37,28 +38,31 @@ def answer(**changes):
     return result
 
 
-def test_direct_openai_context_history_and_no_trade(game, monkeypatch):
+def test_openrouter_context_history_and_no_trade(game, monkeypatch):
     game["chat"] = [{"id": str(uuid.uuid4()), "question": f"질문 {i}", "paragraphs": ["현금 비중을 논의했어요."],
                     "weights": PLAN, "secret": "must-not-be-sent"} for i in range(15)]
     before = copy.deepcopy(game)
     calls = []
     def post(url, **kw):
-        assert url == "https://api.openai.com/v1/responses"
+        assert url == "https://openrouter.ai/api/v1/chat/completions"
         assert kw["headers"]["Authorization"] == "Bearer test-not-a-real-key"
         payload = kw["json"]
-        assert payload["store"] is False and payload["model"] == "gpt-6-luna"
-        data = json.loads(payload["input"][0]["content"])
+        assert payload["stream"] is False and payload["model"] == "openai/gpt-6-luna"
+        assert payload["provider"]["require_parameters"] is True
+        assert payload["reasoning"]["exclude"] is True
+        data = json.loads(payload["messages"][1]["content"])
         context = data["context"]
         assert context["setup"]["allocation"] == PLAN and context["focus_asset"] is None
         assert len(context["recent_discussion"]) == 12
         assert context["recent_discussion"][0]["question"] == "질문 3"
         assert all(a+".risk" in context["facts"] for a in "ABCD")
         assert "secret" not in json.dumps(context) and "chart" not in context
-        calls.append(payload["text"]["format"]["name"])
+        calls.append(payload["response_format"]["json_schema"]["name"])
         return response({"supported": True} if len(calls) == 2 else answer())
     monkeypatch.setattr(mentor.httpx, "post", post)
     r = mentor.discuss(game, "그럼 현금을 더 늘리면?", "A", PLAN, SETUP)
-    assert r["source"] == "ai" and "OpenAI 직접 연결" in r["status"]
+    assert r["source"] == "ai" and "OpenRouter 연결" in r["status"]
+    assert "must-not-publish" not in json.dumps(r)
     assert calls == ["investment_discussion", "answer_review"]
     assert r["weights"] is None and game == before
     assert set(r) == {"question", "paragraphs", "weights", "source", "status"}
@@ -117,9 +121,9 @@ def test_valid_proposal_is_only_a_draft(game, monkeypatch):
 
 
 @pytest.mark.parametrize("status,code,expected", [(401, "invalid_api_key", "키 인증"),
-    (401, "ip_not_authorized", "IP 허용 목록"),
-    (429, "insufficient_quota", "잔액·결제"), (429, "rate_limit_exceeded", "요청 한도"),
-    (429, "credit_balance_exhausted", "잔액·결제"),
+    (401, "ip_not_authorized", "IP 제한"), (402, 402, "크레딧 잔액"),
+    (429, "insufficient_quota", "크레딧 잔액"), (429, "rate_limit_exceeded", "요청 한도"),
+    (429, "credit_balance_exhausted", "크레딧 잔액"),
     (404, "model_not_found", "모델 권한"), (500, "server_error", "일시 연결")])
 def test_errors_are_actionable_without_secrets(game, monkeypatch, status, code, expected):
     monkeypatch.setattr(mentor.httpx, "post", lambda *a, **kw: httpx.Response(status, json={
@@ -129,16 +133,16 @@ def test_errors_are_actionable_without_secrets(game, monkeypatch, status, code, 
     assert "test-not-a-real-key" not in json.dumps(r) and "private provider detail" not in json.dumps(r)
 
 
-def test_no_key_never_uses_gateway(game, monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY")
-    monkeypatch.setattr(mentor.httpx, "post", lambda *a, **kw: pytest.fail("Gateway로 우회하면 안 됩니다."))
+def test_no_key_never_uses_openai_or_gateway(game, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY")
+    monkeypatch.setattr(mentor.httpx, "post", lambda *a, **kw: pytest.fail("OpenAI 또는 Gateway로 우회하면 안 됩니다."))
     assert mentor.discuss(game, "현금 이자는?", "A", PLAN)["source"] == "rules"
 
 
 @pytest.mark.parametrize("value", ['  test-not-a-real-key\n', '"test-not-a-real-key"',
     "'test-not-a-real-key'", 'Bearer test-not-a-real-key', '"Bearer test-not-a-real-key"'])
 def test_pasted_key_wrappers_are_removed_without_exposing_value(game, monkeypatch, value):
-    monkeypatch.setenv("OPENAI_API_KEY", value)
+    monkeypatch.setenv("OPENROUTER_API_KEY", value)
     def post(*a, **kw):
         assert kw["headers"]["Authorization"] == "Bearer test-not-a-real-key"
         return httpx.Response(401, json={"error": {"code": "invalid_api_key"}})
@@ -146,6 +150,31 @@ def test_pasted_key_wrappers_are_removed_without_exposing_value(game, monkeypatc
     reply = mentor.discuss(game, "현금 이자는?", "A", PLAN)
     assert "새 API 키로 교체" in reply["status"]
     assert "test-not-a-real-key" not in json.dumps(reply)
+
+
+@pytest.mark.parametrize("body", [
+    {"choices": [{"finish_reason": "length", "message": {"content": "private partial text"}}]},
+    {"choices": [{"finish_reason": "error", "message": {"content": "private provider detail"}}]},
+    {"error": {"code": 502, "message": "private provider detail"}},
+    {"choices": [{"finish_reason": "stop", "message": {"content": None, "refusal": "private refusal"}}]},
+    {"choices": []},
+])
+def test_truncated_refused_or_inline_error_never_published(game, monkeypatch, body):
+    monkeypatch.setattr(mentor.httpx, "post", lambda *a, **kw: httpx.Response(200, json=body))
+    reply = mentor.discuss(game, "현금 이자는?", "A", PLAN)
+    assert reply["source"] == "rules" and "private" not in json.dumps(reply)
+
+
+def test_configured_router_model_used_for_both_requests(game, monkeypatch):
+    monkeypatch.setenv("OPENROUTER_MODEL", "vendor/configured-model")
+    calls = []
+    def post(*a, **kw):
+        calls.append(kw["json"]["model"])
+        return response({"supported": True} if len(calls) == 2 else answer())
+    monkeypatch.setattr(mentor.httpx, "post", post)
+    reply = mentor.discuss(game, "현금 이자는?", "A", PLAN)
+    assert calls == ["vendor/configured-model"]*2
+    assert reply["source"] == "ai" and "vendor/configured-model" in reply["status"]
 
 
 def test_explicit_identifiers_block_but_general_future_discussion_allowed(game, monkeypatch):
