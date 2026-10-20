@@ -35,3 +35,12 @@
 백엔드 전체 pytest, 기존 archive unittest 10개, 프론트엔드 타입 검사·테스트·빌드를 실행합니다. 브라우저 실제 연결 검증은 `ERU_BASE_URL=https://eru-ai-investment-simulator.vercel.app`, `ERU_REQUIRE_AI=1`로 `scripts/mentor_smoke.cjs`를 실행합니다. `scripts/guided_smoke.cjs`는 가드 대화와 승인 주문·이자·복원을 확인하며 `ERU_E2E_QUICK=1`은 핵심 흐름 모드입니다. 원시 세션·화면·대화 결과는 Git에서 제외한 test-results에 저장합니다.
 
 공식 근거: [인증](https://openrouter.ai/docs/api_reference/authentication), [API 연결](https://openrouter.ai/docs/quickstart), [구조화 출력](https://openrouter.ai/docs/guides/features/structured-outputs), [추론 설정](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens).
+
+## 운영 검증 결과
+
+- 소스 `df43303`, 운영 배포 `dpl_8q17ubwUBkmbfhdvR6o11XdYXF1M`, [테스트 사이트](https://eru-ai-investment-simulator.vercel.app/?setup=1).
+- pytest 91개, archive unittest 10개, 프론트엔드 타입 검사·테스트 5개·빌드 통과.
+- 운영 대화 세 응답 모두 source=ai 및 `OpenRouter 연결 · openai/gpt-6-luna` 확인. 선택한 성향·종목·현금30/A42/B28 설명, 현금50/A30/B20 제안, 직전 제안의 비율을 유지한 현금60/A24/B16 후속 제안이 통과했습니다.
+- 초안 적용 전후 거래·대기 주문 없음, 준비 시간 정지, 재접속 대화 복구, 320/390px 가로 넘침 없음, 실제 식별자·미래 가격 요청의 boundary 응답을 확인했습니다. 브라우저 오류 0.
+- 운영 이자 질문과 집중도 가드의 유지/보유 수량25% 매도 비교에서도 실제 AI 응답을 확인했습니다. 논의만으로 시점·거래·대기 주문이 바뀌지 않았고 별도 승인 후 초기 매수·일부 매도·현금100% 조정 총 3건이 체결됐습니다. 정지 중 이자 고정·복원·모바일 통과, 브라우저 오류 및 일시 읽기 오류 0.
+- 이번 운영 브라우저 검증은 핵심 흐름 모드입니다. 시계·장부는 변경하지 않았으며 백엔드 전체 실제 시세 재생 회귀를 통과했습니다. 종전의 운영 300초 완주 기록은 V3 구현 문서에 보존합니다.
