@@ -67,6 +67,17 @@ fs.mkdirSync(out,{recursive:true});
   for(let i=0;i<40;i++){const g=await get();if(g.trades.length===2){assert.equal(g.cash,30000000);assert.equal(g.holdings[2].quantity,'0');assert.equal(g.holdings[3].quantity,'0');break;}if(i===39)throw new Error('초기 주문 체결 대기 초과');await page.waitForTimeout(500);}
   await page.getByRole('navigation',{name:'주 메뉴',exact:true}).getByRole('button',{name:'내 포트폴리오',exact:true}).click();
   await shot('07-started');
+  // 새 설정 링크는 새 게임을 만들고, 기존 게임은 삭제하지 않는다.
+  await page.goto(base+'/?setup=1');
+  await page.getByRole('heading',{name:'어떤 투자 방식이 나에게 맞을까요?',exact:true}).waitFor();
+  const createdId=await page.evaluate(()=>localStorage.getItem('eru-guided-v3-session'));
+  assert.notEqual(createdId,sid);
+  assert.equal(await page.evaluate(()=>localStorage.getItem('eru-guided-previous-session')),sid);
+  assert(!page.url().includes('setup=1'));
+  const previous=await context.request.get(base+'/api/sessions/'+sid);assert(previous.ok());
+  await page.reload();await page.getByRole('heading',{name:'어떤 투자 방식이 나에게 맞을까요?',exact:true}).waitFor();
+  const freshId=await page.evaluate(()=>localStorage.getItem('eru-guided-v3-session'));
+  assert.equal(freshId,createdId);
   // 다른 새 게임에서 현금 100%를 선택하면 종목 선택과 주문 없이 시작한다.
   const cashContext=await browser.newContext({viewport:{width:390,height:844},locale:'ko-KR'});
   const cashPage=await cashContext.newPage();cashPage.on('pageerror',e=>errors.push(e.message));
@@ -82,7 +93,7 @@ fs.mkdirSync(out,{recursive:true});
   assert.equal(await cashPage.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   await cashContext.close();
   assert.deepEqual(errors,[]);
-  const report={base,passed:true,profilePresets:true,twoStageAllocation:initialRequest.weights,preStartFrozen:true,restored:true,cashOnly:true,mobileWidths:[320,390],errors};
+  const report={base,passed:true,profilePresets:true,twoStageAllocation:initialRequest.weights,preStartFrozen:true,restored:true,freshSetupLink:true,cashOnly:true,mobileWidths:[320,390],errors};
   fs.writeFileSync(path.join(out,prefix+'-report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));
  }catch(e){await shot('failure').catch(()=>{});fs.writeFileSync(path.join(out,prefix+'-report.json'),JSON.stringify({base,passed:false,error:e.message,errors},null,2));throw e;}
  finally{await browser.close();}

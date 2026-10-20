@@ -51,8 +51,16 @@ export default function App() {
       const r = await fetch('/api/catalog'); if (!r.ok) throw new Error('자산 정보를 불러오지 못했어요.');
       const c = await r.json(); setCatalog(c.assets);
       const id = localStorage.getItem(SESSION);
-      if (id) {try {const g = await api('/sessions/' + id); if (g.mode === 'guided') return g;} catch(e) {if ((e as {status?:number}).status !== 404) throw e;}}
-      const g = await api('/guided-sessions',{}); localStorage.setItem(SESSION,g.id); return g;
+      const freshSetup = new URLSearchParams(location.search).get('setup') === '1';
+      if (id && !freshSetup) {try {const g = await api('/sessions/' + id); if (g.mode === 'guided') return g;} catch(e) {if ((e as {status?:number}).status !== 404) throw e;}}
+      const g = await api('/guided-sessions',{});
+      if (freshSetup) {
+        if (id) localStorage.setItem('eru-guided-previous-session',id);
+        localStorage.removeItem('eru-guided-draft'); setDraft(DEFAULT);
+        const url = new URL(location.href); url.searchParams.delete('setup');
+        history.replaceState(null,'',url.pathname+url.search+url.hash);
+      }
+      localStorage.setItem(SESSION,g.id); return g;
     })();
     void bootstrap.current.then(receive).catch(e=>setError(e.message));
   },[]);
