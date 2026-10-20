@@ -1,0 +1,16 @@
+flowchart LR
+    ready(["시작 전 · 시간 정지"]) --> learn["코인과 이자형 자금 비교"]
+    learn --> ask["AI에게 질문"]
+    ask --> draft["비중과 이유 작성"]
+    draft --> sum{"합계 100퍼센트"}
+    sum -->|"수정"| draft
+    sum -->|"완료"| preview["주문 예산 · 이자 조건"]
+    preview --> approve{"이 구성으로 시작"}
+    approve -->|"다시 논의"| ask
+    approve -->|"승인"| save["계획과 운용 동의 저장"]
+    save --> orders["초기 주문 일괄 접수"]
+    orders --> nextOpen(["다음 일봉 시가 체결"])
+    style learn fill:#DCCCFF,stroke:#874FFF
+    style ask fill:#DCCCFF,stroke:#874FFF
+    style approve fill:#C2E5FF,stroke:#3DADFF
+    style orders fill:#FFECBD,stroke:#FFC943

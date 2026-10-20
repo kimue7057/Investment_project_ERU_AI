@@ -10,7 +10,7 @@ try {
     $eruHealth = Invoke-RestMethod 'http://127.0.0.1:8000/api/health' -TimeoutSec 2
 } catch { }
 if ($eruHealth) {
-    if ($eruHealth.version -eq 'Alpha V1') { Start-Process 'http://127.0.0.1:8000'; exit 0 }
+    if ($eruHealth.version -in @('Alpha V1','모의투자 V2','AI 동행 투자 V3')) { Start-Process 'http://127.0.0.1:8000'; exit 0 }
     throw 'Port 8000 is occupied by another application.'
 }
 $eruState = Join-Path $env:LOCALAPPDATA 'ERU-AI'
@@ -21,7 +21,7 @@ for ($eruAttempt=0; $eruAttempt -lt 60; $eruAttempt++) {
     Start-Sleep -Milliseconds 250
     try {
         $eruHealth = Invoke-RestMethod 'http://127.0.0.1:8000/api/health' -TimeoutSec 2
-        if ($eruHealth.version -eq 'Alpha V1') {
+        if ($eruHealth.version -in @('Alpha V1','모의투자 V2','AI 동행 투자 V3')) {
             $eruListener = Get-NetTCPConnection -State Listen -LocalPort 8000 -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($eruListener) { $eruListener.OwningProcess | Out-File -LiteralPath (Join-Path $eruState 'server.pid') -Encoding ascii }
             Start-Process 'http://127.0.0.1:8000'

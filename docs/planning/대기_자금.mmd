@@ -1,0 +1,19 @@
+flowchart LR
+    policy(["대기 자금 운용 동의"]) --> cash["예금성 대기 자금"]
+    cash --> buy["승인한 매수 주문"]
+    buy --> reserve["주문금 예약"]
+    reserve --> fillBuy["다음 시가 매수 체결"]
+    fillBuy --> remain["잔여 자금 운용"]
+    sell(["승인한 매도 주문"]) --> fillSell["다음 시가 매도 체결"]
+    fillSell --> proceeds["수수료 차감 매도금"]
+    proceeds --> remain
+    cash --> progress{"게임 날짜 진행"}
+    progress -->|"진행"| accrue["적격 잔액 이자 적립"]
+    progress -->|"시작 전 · 정지"| frozen["이자 추가 없음"]
+    accrue --> record["이자 수익 별도 기록"]
+    remain -.->|"다음 운용 구간"| cash
+    record --> result(["총수익에 합산"])
+    style cash fill:#C2E5FF,stroke:#3DADFF
+    style reserve fill:#FFECBD,stroke:#FFC943
+    style accrue fill:#CDF4D3,stroke:#66D575
+    style frozen fill:#D9D9D9,stroke:#B3B3B3

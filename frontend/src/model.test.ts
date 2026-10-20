@@ -6,6 +6,7 @@ describe('사용자 입력과 표시',()=>{
     expect(validWeights({...initialWeights,A:31})).toBe(false);
     expect(validWeights({...initialWeights,A:NaN})).toBe(false);
     expect(validWeights({...initialWeights,cash:-1,A:51})).toBe(false);
+    expect(validWeights({cash:100,A:0,B:0,C:0,wrong:0} as unknown as typeof initialWeights)).toBe(false);
   });
   it('재생 남은 시간과 원화 표시를 정확히 처리한다',()=>{
     expect(clock(300)).toBe('05:00');expect(clock(60.01)).toBe('01:01');expect(clock(0)).toBe('00:00');

@@ -6,7 +6,7 @@ export const money = (n: number | string) => '₩' + Math.round(Number(n)).toLoc
 export const pct = (n: number) => (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
 export const date = (s: string) => s.slice(0, 10).replaceAll('-', '.');
 export const clock = (n: number) => `${String(Math.floor(Math.ceil(n) / 60)).padStart(2, '0')}:${String(Math.ceil(n) % 60).padStart(2, '0')}`;
-export function validWeights(w: Allocation) { return Object.values(w).every(n => Number.isFinite(n) && n >= 0 && n <= 100) && Math.abs(Object.values(w).reduce((a, b) => a + b, 0) - 100) < 1e-8; }
+export function validWeights(w: Allocation) { return !!w && Object.keys(w).sort().join(',') === 'A,B,C,D,cash' && Object.values(w).every(n => Number.isFinite(n) && n >= 0 && n <= 100) && Math.abs(Object.values(w).reduce((a, b) => a + b, 0) - 100) < 1e-8; }
 export type Research = {event_id: string; asset_alias: string; published_on: string; document_type: string; public_title: string; public_summary: string};
 export type Asset = {alias: string; name: string; category: string; available?: boolean; overview: string; technology?: string; supply?: string; risks?: string[]; document_label?: string};
 export type Alert = {id: string; at: string; kind: string; asset: Alias; side?: 'buy'|'sell'; title: string; summary: string; percent?: number; decision: string | null};
@@ -17,3 +17,10 @@ export type Game = {mode?: "paper"; fee_rate?: number; id: string; status: 'read
   pending: {kind: string; at: string; asset?: string; side?: string; budget?: string; quantity?: string} | null;
   alerts: Alert[]; choices: {action: string}[]; research: Research[]; trades: Trade[]; history: {time: string; value: number}[];
   identities?: Record<string, string>; baseline_return_pct?: number};
+
+export type Discussion = {id: string; at: string; question: string; paragraphs: string[]; source: 'ai'|'rules'|'boundary'; status: string; weights: Allocation | null};
+export type GuidedGame = Omit<Game, 'mode'> & {mode: 'guided'; initial_plan: Record<string,string> | null;
+  interest_account: {accrued: number; annual_rate: number; principal: number; reserved: number; available: number; settled: boolean; policy: string; terms: string};
+  trading_profit: number; chat: Discussion[];
+  choices: {at: string; action: string; summary?: string; alert_id?: string}[]};
+export type Approval = {kind: 'hold'|'trade'|'rebalance'; alert_id?: string; asset?: Alias; side?: 'buy'|'sell'; amount?: number; percent?: number; weights?: Allocation};

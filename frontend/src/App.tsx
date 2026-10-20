@@ -1,127 +1,170 @@
 import { useEffect, useRef, useState } from 'react';
 import Chart from './Chart';
-import { money, pct, date, clock, type Alias, type Asset, type Game } from './model';
+import PlanEditor from './PlanEditor';
+import Mentor from './Mentor';
+import { aliases, money, pct, date, clock, validWeights, type Alias, type Allocation, type Asset, type GuidedGame, type Approval } from './model';
 
-type View = 'market' | 'detail' | 'account' | 'orders' | 'result';
-const SESSION = 'eru-paper-session';
-const qty = (v: string | number) => Number(v).toLocaleString('ko-KR', { maximumFractionDigits: 8 });
-const stamp = (v: string) => date(v) + ' ' + v.slice(11, 16);
-function Badge({ asset }: { asset: string }) { return <span className={'asset-badge asset-' + asset}>{asset}</span>; }
-function Change({ value, children }: { value: number; children?: React.ReactNode }) { return <span className={value > 0 ? 'up' : value < 0 ? 'down' : 'muted'}>{children ?? pct(value)}</span>; }
-function Pair({ label, children }: { label: string; children: React.ReactNode }) { return <div className="pair"><span>{label}</span><strong>{children}</strong></div>; }
-async function api(path: string, body?: object): Promise<any> {
-  const r = await fetch('/api' + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+type View = 'portfolio'|'assets'|'discussion'|'records'|'result';
+const SESSION = 'eru-guided-v3-session';
+const DEFAULT: Allocation = {cash:30,A:30,B:20,C:15,D:5};
+const qty = (n: string|number) => Number(n).toLocaleString('ko-KR',{maximumFractionDigits:8});
+function Pair({label, children}:{label:string; children:React.ReactNode}) {return <div className="pair"><span>{label}</span><strong>{children}</strong></div>;}
+function Badge({asset}:{asset:string}) {return <span className={'asset-badge asset-' + asset}>{asset === 'cash' ? '₩' : asset}</span>;}
+async function api(path:string, body?:object):Promise<GuidedGame> {
+  const r = await fetch('/api' + path,{method:body === undefined ? 'GET':'POST',headers:{'Content-Type':'application/json'},...(body === undefined ? {}:{body:JSON.stringify(body)})});
   const data = await r.json();
-  if (!r.ok) throw Object.assign(new Error(typeof data.detail === 'string' ? data.detail : '입력값을 확인해 주세요.'), {status: r.status});
+  if (!r.ok) throw Object.assign(new Error(typeof data.detail === 'string' ? data.detail:'입력값을 확인해 주세요.'),{status:r.status});
   return data;
 }
 
 export default function App() {
-  const [game, setGame] = useState<Game | null>(null);
-  const [catalog, setCatalog] = useState<Asset[]>([]);
-  const [view, setView] = useState<View>('market');
-  const [selected, setSelected] = useState<Alias>('A');
-  const [search, setSearch] = useState('');
-  const [favorites, setFavorites] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem('eru-favorites') || '[]'); } catch { return []; } });
-  const [onlyFavorites, setOnlyFavorites] = useState(false);
-  const [side, setSide] = useState<'buy' | 'sell'>('buy');
-  const [amount, setAmount] = useState('1000000');
-  const [fraction, setFraction] = useState<number | null>(null);
-  const [confirm, setConfirm] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [info, setInfo] = useState(false);
-  const [revealed, setRevealed] = useState(false);
-  const [period, setPeriod] = useState(0);
-  const [orderTab, setOrderTab] = useState<'pending' | 'filled'>('pending');
-  const inFlight = useRef(false), mutating = useRef(false);
-  const current = useRef<Game | null>(null), lastTrades = useRef<number | null>(null);
-  const bootstrap = useRef<Promise<Game> | null>(null);
-  current.current = game;
-  useEffect(() => { window.scrollTo(0, 0); }, [view, selected]);
-  function receive(g: Game) {
-    const wasFinished = current.current?.id === g.id && current.current.status === 'finished';
-    if (lastTrades.current !== null && g.trades.length > lastTrades.current) {
-      const t = g.trades[g.trades.length - 1];
-      setNotice(`코인 ${t.asset} ${t.side === 'buy' ? '매수' : '매도'} 완료 · ${qty(t.quantity)} ${t.asset} · 체결가 ${money(t.price)} · 수수료 ${money(t.fee)}`);
+  const [game,setGame] = useState<GuidedGame|null>(null), [catalog,setCatalog] = useState<Asset[]>([]);
+  const [view,setView] = useState<View>('portfolio'), [step,setStep] = useState(0);
+  const [selected,setSelected] = useState<Alias>('A'), [draft,setDraft] = useState<Allocation>(()=>{try {const saved = JSON.parse(localStorage.getItem('eru-guided-draft') || 'null'); if (saved && Object.keys(saved).length === 5 && validWeights(saved)) return saved;} catch {/* 초안 복구 */} return DEFAULT;});
+  const [busy,setBusy] = useState(false), [error,setError] = useState(''), [notice,setNotice] = useState('');
+  const [review,setReview] = useState<Approval|'start'|null>(null), [consent,setConsent] = useState(false);
+  const [decision,setDecision] = useState<'hold'|'trade'|'rebalance'>('hold');
+  const [side,setSide] = useState<'buy'|'sell'>('sell'), [amount,setAmount] = useState('1000000'), [percent,setPercent] = useState('20');
+  const [revealed,setRevealed] = useState(false), [info,setInfo] = useState(false);
+  const current = useRef<GuidedGame|null>(null), inFlight = useRef(false), mutating = useRef(false);
+  const bootstrap = useRef<Promise<GuidedGame>|null>(null), seenAlert = useRef(''), lastTrades = useRef(0);
+  const draftLoaded = useRef(false);
+  const modal = useRef<HTMLElement|null>(null);
+  function receive(g:GuidedGame) {
+    current.current = g; setGame(g);
+    if (!draftLoaded.current) {
+      const saved = g.status === 'ready' ? localStorage.getItem('eru-guided-draft') : null;
+      if (saved) {try {const w = JSON.parse(saved); if (validWeights(w)) setDraft(w);} catch {/* 손상된 초안은 기본 구성으로 복구 */}}
+      else if (g.initial_plan) setDraft(Object.fromEntries(Object.entries(g.targets).map(([k,v])=>[k,Number(v)])) as Allocation);
+      draftLoaded.current = true;
     }
-    lastTrades.current = g.trades.length; current.current = g; setGame(g);
-    if (g.status === 'finished' && !wasFinished) { setView('result'); setConfirm(false); }
+    if (g.trades.length > lastTrades.current) {setNotice('승인한 매매가 체결됐어요. 거래 내역에서 실제 수량·가격·수수료를 확인하세요.'); lastTrades.current = g.trades.length;}
+    const alert = g.alerts.find(a=>a.decision === null);
+    if (alert && alert.id !== seenAlert.current) {
+      seenAlert.current = alert.id; setSelected(alert.asset); setSide(alert.side ?? 'sell'); setPercent(String(alert.percent ?? 20)); setDecision('hold'); setReview(null); setView('discussion');
+    }
+    if (g.status === 'finished') {setView('result'); setReview(null);}
   }
-  useEffect(() => {
-    if (!bootstrap.current) bootstrap.current = (async () => {
-      const c = await api('/catalog'); setCatalog(c.assets);
+  useEffect(()=>{
+    if (!bootstrap.current) bootstrap.current = (async()=>{
+      const r = await fetch('/api/catalog'); if (!r.ok) throw new Error('자산 정보를 불러오지 못했어요.');
+      const c = await r.json(); setCatalog(c.assets);
       const id = localStorage.getItem(SESSION);
-      if (id) { try { const g = await api(`/sessions/${id}`); if (g.mode === 'paper') return g; } catch (e) { if ((e as {status?: number}).status !== 404) throw e; } }
-      const g = await api('/paper-sessions', {}); localStorage.setItem(SESSION, g.id); return g;
+      if (id) {try {const g = await api('/sessions/' + id); if (g.mode === 'guided') return g;} catch(e) {if ((e as {status?:number}).status !== 404) throw e;}}
+      const g = await api('/guided-sessions',{}); localStorage.setItem(SESSION,g.id); return g;
     })();
-    void bootstrap.current.then(receive).catch(e => setError(e.message));
-  }, []);
-  useEffect(() => {
-    if (!game?.id) return;
-    const id = game.id; let stopped = false;
-    const poll = async () => {
+    void bootstrap.current.then(receive).catch(e=>setError(e.message));
+  },[]);
+  useEffect(()=>{
+    if (!game?.id) return; let stopped = false; const id = game.id;
+    const poll = async()=>{
       if (inFlight.current || mutating.current || document.hidden) return;
       inFlight.current = true;
-      try { const g = await api(`/sessions/${id}?asset=${selected}`); if (!stopped && current.current?.id === id) { receive(g); setError(old => old.startsWith('연결 확인 중:') ? '' : old); } }
-      catch (e) { if (!stopped) setError('연결 확인 중: ' + (e as Error).message); }
-      finally { inFlight.current = false; }
+      try {const g = await api('/sessions/' + id + '?asset=' + selected); if (!stopped && current.current?.id === id) {receive(g); setError(e=>e.startsWith('연결 확인 중:') ? '' : e);}}
+      catch(e) {if (!stopped) setError('연결 확인 중: ' + (e as Error).message);}
+      finally {inFlight.current = false;}
     };
-    void poll(); const t = setInterval(poll, 1000); return () => { stopped = true; clearInterval(t); };
-  }, [game?.id, selected]);
-  useEffect(() => { if (!notice) return; const t = setTimeout(() => setNotice(''), 10000); return () => clearTimeout(t); }, [notice]);
-  useEffect(() => { const f = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) setConfirm(false); }; window.addEventListener('keydown', f); return () => window.removeEventListener('keydown', f); }, [busy]);
-  async function action(name: string, body = {}) {
+    void poll(); const t = setInterval(poll,1300); return ()=>{stopped = true; clearInterval(t);};
+  },[game?.id,selected]);
+  useEffect(()=>{if (!notice) return; const t = setTimeout(()=>setNotice(''),10000); return ()=>clearTimeout(t);},[notice]);
+  useEffect(()=>{localStorage.setItem('eru-guided-draft',JSON.stringify(draft));},[draft]);
+  useEffect(()=>{const handler = (e:KeyboardEvent)=>{if (e.key === 'Escape' && !mutating.current) setReview(null);}; window.addEventListener('keydown',handler); return ()=>window.removeEventListener('keydown',handler);},[]);
+  useEffect(()=>{
+    if (!review || !modal.current) return;
+    const previous = document.activeElement as HTMLElement|null;
+    const root = modal.current;
+    root.querySelector<HTMLButtonElement>('button')?.focus();
+    function trap(e:KeyboardEvent) {
+      if (e.key !== 'Tab') return;
+      const nodes = [...root.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled)')];
+      const first = nodes[0], last = nodes[nodes.length-1];
+      if (e.shiftKey && document.activeElement === first) {e.preventDefault();last?.focus();}
+      else if (!e.shiftKey && document.activeElement === last) {e.preventDefault();first?.focus();}
+    }
+    root.addEventListener('keydown',trap);
+    return ()=>{root.removeEventListener('keydown',trap);previous?.focus();};
+  },[review]);
+  async function action(name:string,body:object = {}) {
     if (!current.current || mutating.current) return null;
     mutating.current = true; setBusy(true); setError('');
-    while (inFlight.current) await new Promise(r => setTimeout(r, 10));
-    try { const g = await api(`/sessions/${current.current.id}/${name}`, body); receive(g); return g as Game; }
-    catch (e) { setError((e as Error).message); return null; }
-    finally { mutating.current = false; setBusy(false); }
+    while (inFlight.current) await new Promise(r=>setTimeout(r,10));
+    try {const g = await api('/sessions/' + current.current.id + '/' + name,body); receive(g); return g;}
+    catch(e) {setError((e as Error).message); return null;}
+    finally {mutating.current = false; setBusy(false);}
   }
-  async function retry() {
+  async function reset() {
     if (mutating.current) return; mutating.current = true; setBusy(true); setError('');
-    while (inFlight.current) await new Promise(r => setTimeout(r, 10));
-    try { const g = await api('/paper-sessions', {}); localStorage.setItem(SESSION, g.id); lastTrades.current = null; receive(g); setView('market'); setRevealed(false); setNotice('가상 현금 1억 원으로 새롭게 시작해요.'); }
-    catch (e) { setError((e as Error).message); } finally { mutating.current = false; setBusy(false); }
+    while (inFlight.current) await new Promise(r=>setTimeout(r,10));
+    try {const g = await api('/guided-sessions',{}); localStorage.setItem(SESSION,g.id); localStorage.removeItem('eru-guided-draft'); draftLoaded.current = false; seenAlert.current = ''; lastTrades.current = 0; setDraft(DEFAULT); setStep(0); setConsent(false); setRevealed(false); setView('portfolio'); receive(g);}
+    catch(e) {setError((e as Error).message);}
+    finally {mutating.current = false; setBusy(false);}
   }
-  function choose(a: Alias, next: 'buy' | 'sell' = 'buy') { setSelected(a); setSide(next); setAmount(next === 'buy' ? '1000000' : ''); setFraction(null); setView('detail'); setInfo(false); }
-  function favorite(a: string) { setFavorites(old => { const next = old.includes(a) ? old.filter(x => x !== a) : [...old, a]; localStorage.setItem('eru-favorites', JSON.stringify(next)); return next; }); }
-  const holding = game?.holdings.find(h => h.asset === selected), asset = catalog.find(a => a.alias === selected);
-  const n = Number(amount), rate = game?.fee_rate ?? .0005;
-  const gross = side === 'buy' ? n / (1 + rate) : n * (holding?.price ?? 0), fee = gross * rate;
-  const expectedQuantity = side === 'buy' ? gross / (holding?.price || 1) : n;
-  const valid = Number.isFinite(n) && n > 0 && !!game && !game.pending && game.status !== 'finished' && (side === 'buy' ? Number.isInteger(n) && n <= game.cash : fraction !== null ? Number(holding?.quantity) > 0 : n <= Number(holding?.quantity));
-  async function prepare() {
-    if (!valid) return; let g = current.current;
-    if (g?.status === 'ready') g = await action('play');
-    if (g?.status === 'running') g = await action('pause');
-    if (g?.status === 'paused' && !g.pending) setConfirm(true);
+  async function discuss() {
+    if (!game || busy || game.pending || game.status === 'finished') return;
+    if (game.status === 'running' && !await action('pause')) return;
+    setView('discussion');
   }
-  async function submit() {
-    const body = side === 'buy' ? { asset: selected, side, amount: n } : fraction !== null ? { asset: selected, side, percent: fraction } : { asset: selected, side, quantity: amount };
-    if (await action('orders', body)) { setConfirm(false); setOrderTab('pending'); setView('orders'); setNotice('주문이 접수됐어요. 시장을 재개하면 다음 일봉 시가로 체결돼요.'); }
+  async function ask(question:string) {
+    if (!validWeights(draft)) {setError('AI와 논의하려면 초안 비중 합계를 먼저 100%로 맞춰 주세요.'); return;}
+    await action('chat',{request_id:crypto.randomUUID(),question,asset:selected,draft});
   }
-  const pending = game?.pending, reserved = pending?.side === 'buy' ? Number(pending.budget) : 0;
-  const available = Math.max(0, (game?.cash ?? 0) - reserved), owned = game?.holdings.filter(h => Number(h.quantity) > 0) ?? [];
-  const filtered = catalog.filter(a => (!onlyFavorites || favorites.includes(a.alias)) && `코인 ${a.alias}`.toLowerCase().includes(search.toLowerCase()));
-  const candles = game?.chart_asset === selected ? game.chart : [];
-  const data = (period ? candles.slice(-period) : candles).map(c => ({ time: c.time, value: c.close }));
-  const finished = game?.status === 'finished';
-  return <div className="app">
-    <header className="topbar"><a className="brand" href="#" onClick={e => { e.preventDefault(); setView('market'); }}>ERU <span>모의투자</span></a><nav aria-label="주 메뉴">{([['market', '종목 찾기'], ['account', '내 투자'], ['orders', '주문 내역']] as const).map(([v, label]) => <button key={v} className={view === v || (v === 'market' && view === 'detail') ? 'active' : ''} onClick={() => setView(v)}>{label}</button>)}</nav><label className="search"><span aria-hidden="true">⌕</span><input aria-label="종목 검색" placeholder="종목 이름 검색" value={search} onChange={e => { setSearch(e.target.value); setView('market'); }} /></label><span className="virtual">가상 투자</span></header>
-    <div className="playbar"><span className={'play-state ' + game?.status}>{game?.status === 'running' ? '● 시장 재생 중' : game?.status === 'paused' ? '일시정지' : finished ? '투자 종료' : '시작 전'}</span><strong>{game ? stamp(game.now) : '불러오는 중…'}</strong><div className="timeline"><div><i style={{ width: `${(game?.elapsed ?? 0) / 3}%` }} /></div><small>2022.11.07 → 2026.08.05 · 5분 동안 투자해요</small></div><span className="remaining">남은 시간 <b>{clock(300 - (game?.elapsed ?? 0))}</b></span><button className={game?.status === 'ready' ? 'btn primary' : 'btn secondary'} disabled={!game || busy} onClick={() => finished ? setView('result') : void action(game?.status === 'ready' ? 'play' : game?.status === 'running' ? 'pause' : 'resume')}>{game?.status === 'ready' ? '모의투자 시작' : game?.status === 'running' ? '일시정지' : finished ? '투자 결과 보기' : '시장 재개'}</button></div>
-    <main>{error && <div className="message error" role="alert"><span>{error}</span><button onClick={() => setError('')} aria-label="오류 닫기">×</button></div>}{notice && <div className="message success" role="status"><span>{notice}</span><button onClick={() => setNotice('')} aria-label="알림 닫기">×</button></div>}
-    {!game ? <section className="panel loading"><h1>실제 과거 시장을 불러오고 있어요</h1><p>가상 현금 1억 원으로 직접 투자해 보세요.</p>{error && <button className="btn primary" onClick={() => location.reload()}>다시 연결</button>}</section> : <>
-      {view === 'market' && <><div className="page-title"><h1>어떤 종목에 투자해 볼까요?</h1><p>가상 현금 1억 원으로 시작해요. 종목을 고르고 원하는 금액만큼 매수하세요.</p></div><div className="market-layout"><section className="panel market-panel"><div className="tabs"><button className={!onlyFavorites ? 'selected' : ''} onClick={() => setOnlyFavorites(false)}>전체 종목</button><button className={onlyFavorites ? 'selected' : ''} onClick={() => setOnlyFavorites(true)}>관심 종목</button></div><div className="asset-table"><div className="asset-head"><span>종목</span><span>현재 가격</span><span>최근 확정일 등락</span><span /></div>{filtered.map(a => { const h = game.holdings.find(h => h.asset === a.alias)!; return <div className="asset-row" key={a.alias}><button className="coin-name" onClick={() => choose(a.alias as Alias)}><Badge asset={a.alias} /><span><b>{a.name}</b><small>{Number(h.quantity) > 0 ? `${qty(h.quantity)} ${a.alias} 보유` : '보유 없음'}</small></span></button><strong>{money(h.price)}</strong><Change value={h.change_pct} /><div className="row-actions"><button className={'favorite ' + (favorites.includes(a.alias) ? 'on' : '')} onClick={() => favorite(a.alias)} aria-label={`${a.name} 관심 ${favorites.includes(a.alias) ? '해제' : '추가'}`}>{favorites.includes(a.alias) ? '♥' : '♡'}</button><button className="btn secondary" onClick={() => choose(a.alias as Alias)}>종목 보기</button></div></div>; })}{!filtered.length && <p className="empty">{search ? '검색한 종목이 없어요.' : '하트를 눌러 관심 종목을 담아 보세요.'}</p>}</div><div className="callout"><b>종목을 누르면 차트와 매수 화면이 열려요</b><p>실제 과거 가격으로 투자해요. 실제 자산 이름은 투자가 끝나면 확인할 수 있어요.</p></div></section><aside className="stack"><section className="panel"><p className="muted">내 투자금</p><h2 className="balance">{money(game.nav)}</h2><Pair label="주문 가능 금액">{money(available)}</Pair><Pair label="보유 종목">{owned.length}개</Pair><button className="btn primary wide" disabled={busy} onClick={() => game.status === 'ready' ? void action('play') : setView('account')}>{game.status === 'ready' ? '모의투자 시작' : '내 투자 보기'}</button><small>총 5분 · 직접 멈추고 주문할 수 있어요</small></section><section className="panel howto"><h3>이렇게 투자해요</h3><p>1　종목과 차트를 살펴봐요</p><p>2　원하는 금액으로 주문해요</p><p>3　내 투자에서 체결을 확인해요</p></section></aside></div></>}
-      {view === 'detail' && <div className="market-layout"><section className="panel detail-panel"><div className="quote-header"><Badge asset={selected} /><div><h2>코인 {selected}</h2><div className="quote"><strong>{money(holding?.price ?? 0)}</strong><Change value={holding?.change_pct ?? 0} /></div></div><button className="btn secondary favorite-detail" onClick={() => favorite(selected)}>{favorites.includes(selected) ? '♥ 관심 종목' : '♡ 관심 종목'}</button></div><div className="tabs"><button className={!info ? 'selected' : ''} onClick={() => setInfo(false)}>차트</button><button className={info ? 'selected' : ''} onClick={() => setInfo(true)}>종목 정보</button></div>{info ? <div className="asset-info"><h3>어떤 종목인가요?</h3><p>{asset?.overview}</p><h3>기술과 공급 구조</h3><p>{asset?.technology}</p><p>{asset?.supply}</p><h3>투자 전 알아둘 점</h3><ul>{asset?.risks?.map(r => <li key={r}>{r}</li>)}</ul></div> : <><Chart key={selected} data={data} label={`코인 ${selected} 확정 일봉 가격`} /><div className="period-tabs">{[[30, '1개월'], [90, '3개월'], [0, '전체']].map(([v, label]) => <button key={v} className={period === v ? 'selected' : ''} onClick={() => setPeriod(Number(v))}>{label}</button>)}</div><div className="quote-facts"><div><small>최근 확정일</small><b>{candles.length ? date(candles[candles.length - 1].time) : '아직 없어요'}</b></div><div><small>평균 매입가 · 수수료 포함</small><b>{Number(holding?.quantity) > 0 ? money(holding!.average_cost) : '보유 없음'}</b></div><div><small>내 보유 수량</small><b>{qty(holding?.quantity ?? 0)} {selected}</b></div></div><p className="fine">완료된 일봉만 표시해요. 현재 가격은 마지막으로 확인 가능한 시세예요.</p></>}</section><aside className="panel order-panel"><div className="tabs"><button className={side === 'buy' ? 'selected buy-tab' : ''} onClick={() => { setSide('buy'); setAmount('1000000'); setFraction(null); }}>매수</button><button className={side === 'sell' ? 'selected' : ''} onClick={() => { setSide('sell'); setAmount(''); setFraction(null); }}>매도</button></div><h2>{side === 'buy' ? '얼마나 살까요?' : '얼마나 팔까요?'}</h2><Pair label={side === 'buy' ? '주문 가능 금액' : '팔 수 있는 수량'}>{side === 'buy' ? money(available) : `${qty(holding?.quantity ?? 0)} ${selected}`}</Pair><label className="order-label">{side === 'buy' ? '매수 금액 · 수수료 포함' : '매도 수량'}<div className="number-input"><input aria-label={side === 'buy' ? '매수 금액' : '매도 수량'} inputMode="decimal" type="number" min="0" step={side === 'buy' ? '1' : 'any'} value={amount} onChange={e => { setAmount(e.target.value); setFraction(null); }} /><b>{side === 'buy' ? '원' : selected}</b></div></label><div className="quick-buttons">{(side === 'buy' ? ['+100만', '+500만', '최대'] : ['25%', '50%', '전량']).map((label, i) => <button className="btn secondary" key={label} onClick={() => { if (side === 'buy') { setAmount(String(i === 2 ? Math.floor(available) : Math.max(0, Number(amount)) + (i === 0 ? 1000000 : 5000000))); setFraction(null); } else { const p = [25, 50, 100][i]; setFraction(p); setAmount(i === 2 ? holding!.quantity : String(Number(holding?.quantity ?? 0) * p / 100)); } }}>{label}</button>)}</div><hr /><Pair label={side === 'buy' ? '예상 수량' : '예상 매도 금액'}>{side === 'buy' ? `${qty(Math.max(0, expectedQuantity || 0))} ${selected}` : money(Math.max(0, gross || 0))}</Pair><Pair label="예상 수수료">{money(Math.max(0, fee || 0))}</Pair><Pair label={side === 'buy' ? '총 필요 금액' : '예상 받을 금액'}>{money(Math.max(0, side === 'buy' ? n || 0 : gross - fee || 0))}</Pair><div className="callout neutral"><b>다음 일봉 시가로 체결돼요</b><p>주문할 때 시장을 멈춰요. 접수 후 시장을 재개하면 다음 거래 시점에 체결돼요.</p></div><button className={'btn wide ' + (side === 'buy' ? 'buy' : 'primary')} disabled={!valid || busy} onClick={() => void prepare()}>{game.status === 'ready' ? '모의투자 시작하고 ' : ''}{side === 'buy' ? '매수 주문 확인' : '매도 주문 확인'}</button>{pending && <button className="text-button" onClick={() => setView('orders')}>먼저 대기 주문을 확인해 주세요 →</button>}{side === 'sell' && !Number(holding?.quantity) && <p className="fine">보유한 수량이 있어야 매도할 수 있어요.</p>}<small>주문 전에는 자산이 바뀌지 않아요</small></aside></div>}
-      {view === 'account' && <><div className="account-layout"><section className="panel"><h1>내 투자</h1><div className="hero-price">{money(game.nav)}</div><Change value={game.return_pct}>총 수익 {money(game.nav - game.initial)} ({pct(game.return_pct)})</Change><div className="account-stats"><div><small>보유 종목 평가금</small><h3>{money(owned.reduce((v, h) => v + h.value, 0))}</h3></div><div><small>현금 잔고</small><h3>{money(game.cash)}</h3></div><div><small>주문 대기</small><h3>{pending ? '1건' : '0건'}</h3></div></div></section><section className="panel"><h3>내 현금</h3><Pair label="현금 잔고">{money(game.cash)}</Pair><Pair label="매수 예약 금액">{money(reserved)}</Pair><Pair label="주문 가능 금액">{money(available)}</Pair><Pair label="누적 수수료">{money(game.fees)}</Pair></section></div><section className="panel holding-panel"><h2>보유 종목</h2>{owned.length ? owned.map(h => <div className="holding-row" key={h.asset}><button className="coin-name" onClick={() => choose(h.asset)}><Badge asset={h.asset} /><span><b>코인 {h.asset}</b><small>{qty(h.quantity)} {h.asset} · 평균 {money(h.average_cost)}</small></span></button><div><strong>{money(h.value)}</strong><small><Change value={h.unrealized}>{money(h.unrealized)} ({pct(h.average_cost ? (h.price / h.average_cost - 1) * 100 : 0)})</Change></small></div><button className="btn primary" onClick={() => choose(h.asset, 'sell')} disabled={finished}>매도</button></div>) : <div className="empty"><h3>아직 보유한 종목이 없어요</h3><p>종목을 살펴보고 첫 투자를 시작해 보세요.</p><button className="btn primary" onClick={() => setView('market')}>종목 찾아보기</button></div>}<p className="fine">평가손익과 총 수익에 수수료가 반영돼요. 평균 매입가는 매수 수수료를 포함해요.</p></section><button className="btn secondary" onClick={() => { setOrderTab('filled'); setView('orders'); }}>주문·체결 내역 보기</button></>}
-      {view === 'orders' && <><h1>주문 내역</h1><div className="tabs"><button className={orderTab === 'pending' ? 'selected' : ''} onClick={() => setOrderTab('pending')}>대기 중 {pending ? 1 : 0}</button><button className={orderTab === 'filled' ? 'selected' : ''} onClick={() => setOrderTab('filled')}>체결 완료 {game.trades.length}</button></div>{orderTab === 'pending' ? pending ? <section className="panel pending-panel"><div className="quote-header"><Badge asset={pending.asset ?? 'A'} /><h2>코인 {pending.asset} {pending.side === 'buy' ? '매수' : '매도'} 접수</h2><span className="status-chip">체결 대기</span></div><Pair label={pending.side === 'buy' ? '총 매수 예산 · 수수료 포함' : '매도 수량'}>{pending.side === 'buy' ? money(pending.budget ?? 0) : `${qty(pending.quantity ?? 0)} ${pending.asset}`}</Pair><Pair label="체결 예정">{stamp(pending.at)} · 다음 일봉 시가</Pair><div className="callout"><b>주문은 접수됐고, 거래는 아직 완료되지 않았어요</b><p>체결되면 보유 수량과 현금이 바뀌고, 체결 완료 내역에 가격·수량·수수료가 표시돼요.</p></div><Pair label="현금 잔고">{money(game.cash)}</Pair><Pair label="추가 주문 가능 금액">{money(available)}</Pair><div className="actions"><button className="btn primary" disabled={busy || game.status !== 'paused'} onClick={() => void action('resume')}>{game.status === 'running' ? '시장 재생 중 · 체결 기다리는 중' : '시장 재개하고 체결 보기'}</button><button className="btn secondary" disabled={busy} onClick={async () => { if (current.current?.status === 'running' && !await action('pause')) return; if (await action('cancel')) setNotice('주문을 취소했어요. 예약 금액이 해제됐어요.'); }}>주문 취소</button></div></section> : <section className="panel empty"><h2>대기 중인 주문이 없어요</h2><p>{game.trades.length ? '체결 완료 탭에서 결과를 확인하세요.' : '종목을 선택해 직접 주문해 보세요.'}</p><button className="btn secondary" onClick={() => setView(game.trades.length ? 'account' : 'market')}>{game.trades.length ? '내 투자 보기' : '종목 찾아보기'}</button></section> : <section className="panel"><h2>체결 완료 내역</h2>{game.trades.length ? [...game.trades].reverse().map((t, i) => <article className="trade-row" key={`${t.at}-${i}`}><div className="coin-name"><Badge asset={t.asset} /><span><b>코인 {t.asset} <span className={t.side === 'buy' ? 'up' : 'down'}>{t.side === 'buy' ? '매수' : '매도'} 완료</span></b><small>{stamp(t.at)}</small></span></div><div><strong>{qty(t.quantity)} {t.asset} × {money(t.price)}</strong><small>수수료 {money(t.fee)} · {t.side === 'buy' ? '사용' : '받은'} 금액 {money(Number(t.gross) + (t.side === 'buy' ? Number(t.fee) : -Number(t.fee)))}</small></div></article>) : <p className="empty">아직 체결된 거래가 없어요.</p>}</section>}</>}
-      {view === 'result' && <><section className="panel result-summary"><h1>5분의 투자, 이렇게 마무리됐어요</h1><div className="hero-price">{money(game.nav)}</div><Change value={game.return_pct}>시작보다 {money(game.nav - game.initial)} ({pct(game.return_pct)})</Change><div className="account-stats"><div><small>시작 자금</small><h3>{money(game.initial)}</h3></div><div><small>총 거래</small><h3>{game.trades.length}회</h3></div><div><small>총 수수료</small><h3>{money(game.fees)}</h3></div><div><small>가장 큰 하락폭</small><h3>-{game.mdd_pct.toFixed(2)}%</h3></div></div></section><div className="account-layout"><section className="panel"><h2>내가 투자한 실제 자산</h2>{revealed ? Object.entries(game.identities ?? {}).map(([a, name]) => <Pair key={a} label={`코인 ${a}`}>{name}</Pair>) : <><p>이제 가명 뒤에 있던 실제 자산을 확인할 수 있어요.</p><button className="btn secondary" onClick={() => setRevealed(true)}>실제 자산 확인</button></>}</section><section className="panel callout"><h2>다른 선택을 해볼까요?</h2><p>가상 현금 1억 원으로 새롭게 투자해 보세요.</p><button className="btn primary wide" disabled={busy} onClick={() => void retry()}>다시 투자하기</button><button className="text-button" onClick={() => { setOrderTab('filled'); setView('orders'); }}>내 거래 기록 보기 →</button></section></div></>}
-      <footer><span>실제 과거 시세로 진행하는 가상 투자예요</span><span>매매 판단 뒤 다음 일봉 시가로 체결 · 수수료 0.05%</span></footer>
-    </>}</main>
-    <nav className="mobile-nav" aria-label="모바일 주 메뉴">{([['market', '종목'], ['account', '내 투자'], ['orders', '주문']] as const).map(([v, label]) => <button key={v} className={view === v || (v === 'market' && view === 'detail') ? 'selected' : ''} onClick={() => setView(v)}>{label}</button>)}</nav>
-    {confirm && <div className="modal-backdrop" onClick={() => !busy && setConfirm(false)}><section className="confirm-modal panel" role="dialog" aria-modal="true" aria-labelledby="confirm-title" onClick={e => e.stopPropagation()}><button className="close" aria-label="주문 확인 닫기" disabled={busy} onClick={() => setConfirm(false)}>×</button><Badge asset={selected} /><h2 id="confirm-title">코인 {selected} {side === 'buy' ? money(n) + ' 매수' : qty(n) + ' ' + selected + ' 매도'}</h2><p>주문 내용을 한 번 더 확인해 주세요.</p><Pair label={side === 'buy' ? '매수대금 · 수수료 제외' : '예상 매도 금액'}>{money(gross)}</Pair><Pair label="예상 수수료">{money(fee)}</Pair><Pair label={side === 'buy' ? '총 필요 금액' : '예상 받을 금액'}>{money(side === 'buy' ? n : gross - fee)}</Pair>{side === 'buy' && <Pair label="주문 후 남을 현금">{money(game!.cash - n)}</Pair>}<div className="callout neutral"><b>다음 일봉 시가로 체결돼요</b><p>매수 수량과 매도 금액은 체결 가격에 따라 달라져요. 접수 후 시장을 재개해 주세요.</p></div>{error && <p className="up" role="alert">{error}</p>}<button className={'btn wide ' + (side === 'buy' ? 'buy' : 'primary')} disabled={busy || !valid} onClick={() => void submit()}>{busy ? '접수 중…' : side === 'buy' ? '매수 주문 접수' : '매도 주문 접수'}</button><button className="btn secondary wide" disabled={busy} onClick={() => setConfirm(false)}>다시 입력</button></section></div>}
+  function apply(w:Allocation) {setDraft(w); setNotice('구성 초안에 담았어요. 확인·승인 전에는 주문하지 않아요.'); if (game?.status !== 'ready') setDecision('rebalance');}
+  const alert = game?.alerts.find(a=>a.decision === null);
+  const holding = game?.holdings.find(h=>h.asset === selected);
+  const account = game?.interest_account, ready = game?.status === 'ready', finished = game?.status === 'finished';
+  const active = game?.status === 'running', pending = game?.pending;
+  const available = account?.available ?? 0;
+  const buyAmount = Number(amount), sellPercent = Number(percent);
+  const sellQuantity = Number(holding?.quantity ?? 0) * sellPercent / 100;
+  const estimateGross = side === 'buy' ? buyAmount / 1.0005 : sellQuantity * (holding?.price ?? 0);
+  const fee = estimateGross * .0005;
+  const tradeValid = !pending && (side === 'buy' ? Number.isFinite(buyAmount) && buyAmount > 0 && buyAmount <= available : Number.isFinite(sellPercent) && sellPercent > 0 && sellPercent <= 100 && Number(holding?.quantity) > 0);
+  const mentor = game && <Mentor messages={game.chat} busy={busy} selected={selected} onSelect={setSelected} onAsk={ask} onApply={apply}/>;
+  function reviewDecision() {
+    if (decision === 'hold') setReview({kind:'hold',...(alert ? {alert_id:alert.id}:{})});
+    if (decision === 'rebalance' && validWeights(draft)) setReview({kind:'rebalance',weights:{...draft},...(alert ? {alert_id:alert.id}:{})});
+    if (decision === 'trade' && tradeValid) setReview({kind:'trade',asset:selected,side,...(side === 'buy' ? {amount:buyAmount}:{percent:sellPercent}),...(alert ? {alert_id:alert.id}:{})});
+  }
+  async function approve() {
+    if (!review) return;
+    const g = review === 'start' ? await action('start',{weights:draft}) : await action('approved-order',review);
+    if (g) {setReview(null); if (!g.alerts.some(a=>a.decision === null)) setView('portfolio'); setNotice(review === 'start' ? '구성을 확정했어요. 초기 주문은 다음 일봉 시가에 자동 체결돼요.' : '선택을 기록했어요. 승인한 주문이 있으면 다음 일봉 시가에 체결돼요.');}
+  }
+  const currentAsset = catalog.find(a=>a.alias === selected);
+  const currentWeights = game && Object.fromEntries([['cash',Number((game.cash/game.nav*100).toFixed(1))],...game.holdings.map(h=>[h.asset,Number(h.weight.toFixed(1))])]);
+  return <div className="app guided-app">
+    <header className="topbar"><a className="brand" href="#" onClick={e=>{e.preventDefault();setView('portfolio');}}>ERU <span>AI 동행 투자</span></a><nav aria-label="주 메뉴">{([['portfolio','내 포트폴리오'],['assets','자산 살펴보기'],['records','판단 기록']] as const).map(([v,label])=><button key={v} className={view === v ? 'active':''} onClick={()=>setView(v)}>{label}</button>)}</nav><span className="virtual">과거 시장을 경험하는 5분</span></header>
+    <div className="playbar"><span className={'play-state ' + game?.status}>{ready ? '투자 준비' : active ? '시장 진행 중' : finished ? '투자 종료' : '판단 시간 · 시장 정지'}</span><strong>{game ? date(game.now):'연결 중'}</strong><div className="timeline"><div><i style={{width:(game?.elapsed ?? 0)/3 + '%'}}/></div><small>2022.11.07 → 2026.08.05</small></div><span className="remaining">{clock(300 - (game?.elapsed ?? 0))}</span>{!ready && !finished && <button className="btn secondary" disabled={busy || !!alert} onClick={()=>void action(active ? 'pause':'resume')}>{active ? '잠시 멈추기' : pending ? '시장 재개하고 체결 보기':'시장 재개'}</button>}</div>
+    <main>
+      {error && <div className="message error" role="alert"><span>{error}</span><button aria-label="오류 닫기" onClick={()=>setError('')}>×</button></div>}
+      {notice && <div className="message success" role="status"><span>{notice}</span><button aria-label="알림 닫기" onClick={()=>setNotice('')}>×</button></div>}
+      {!game ? <section className="panel loading"><h1>투자 실험을 준비하고 있어요</h1>{error && <button className="btn primary" onClick={()=>location.reload()}>다시 연결</button>}</section> : <>
+      {ready && view !== 'records' && <div className="preparation">
+        <div className="prep-steps" aria-label="투자 준비 단계">{['자산 이해','함께 구성','시작 확인'].map((label,i)=><button key={label} className={step === i ? 'selected':''} disabled={busy || i === 2 && !validWeights(draft)} onClick={()=>setStep(i)}><span>{i+1}</span>{label}</button>)}</div>
+        <div className="page-title"><div className="eyebrow">나의 첫 번째 투자 실험</div><h1>{step === 0 ? '이해하고, 함께 계획하고, 시작해요' : step === 1 ? '1억 원을 어떻게 운용해 볼까요?' : '이 구성으로 투자를 시작할까요?'}</h1><p>{step === 0 ? '코인의 특징과 대기 자금의 역할을 살펴보세요. AI와 논의한 구성을 확정하면 첫 매매는 자동으로 실행돼요.' : step === 1 ? '이자형 대기 자금과 코인 A~D의 비중을 정해 보세요. 구성은 언제든 수정할 수 있어요.' : '승인한 초기 주문만 다음 일봉 시가에 실행해요. 이후 변경은 다시 확인하고 결정해요.'}</p></div>
+        {step === 0 && <><div className="asset-learning">{catalog.map(a=><button className={'panel learning-card ' + (selected === a.alias ? 'selected':'')} key={a.alias} onClick={()=>{setSelected(a.alias as Alias);setInfo(true);}}><Badge asset={a.alias}/><h2>{a.name}</h2><p>{a.overview}</p><small>{a.risks?.[0]}</small><span className="text-button">특징 자세히 보기 →</span></button>)}<section className="panel learning-card cash-card"><Badge asset="cash"/><h2>이자형 대기 자금</h2><p>투자하지 않은 돈에도 게임 속 날짜에 따라 이자가 쌓여요. 승인한 매수에 사용할 수 있어요.</p><small>현재 모델 금리 연 {account?.annual_rate}% · 세전 단리</small><button className="text-button" disabled={busy} onClick={()=>void ask('대기 자금의 이자는?')}>이자 운용 방식 질문하기 →</button></section></div><div className="prep-actions"><button className="btn primary" disabled={busy} onClick={()=>{setStep(1);setInfo(false);}}>함께 구성 만들기</button><small>준비하는 동안 게임 시간은 흐르지 않아요</small></div>{info && currentAsset && <section className="panel asset-explanation"><h2>코인 {selected}의 특징</h2><p>{currentAsset.technology}</p><p>{currentAsset.supply}</p><ul>{currentAsset.risks?.map(r=><li key={r}>{r}</li>)}</ul></section>}{mentor}</>}
+        {step === 1 && <div className="guided-layout"><section className="panel"><h2>내 구성 초안</h2><PlanEditor value={draft} onChange={setDraft} disabled={busy}/><div className="callout neutral"><b>대기 자금도 하나의 선택이에요</b><p>투자하지 않는 비중에도 교육용 이자가 쌓여요. 코인은 별도의 이자를 보장하지 않아요.</p></div><button className="btn primary wide" disabled={busy || !validWeights(draft)} onClick={()=>setStep(2)}>구성 확인하기</button></section>{mentor}</div>}
+        {step === 2 && <div className="guided-layout"><section className="panel"><h2>처음 계획과 주문 예산</h2>{(['cash',...aliases] as const).map(a=><Pair key={a} label={a === 'cash' ? '이자형 대기 자금':'코인 ' + a + ' 매수 예산'}>{draft[a]}% · {money(game.initial*draft[a]/100)}</Pair>)}<p className="fine">매수 예산에는 수수료 0.05%가 포함돼요. 실제 체결 수량과 비중은 다음 시가에 따라 달라져요.</p><button className="btn secondary" onClick={()=>setStep(1)}>구성 다시 수정</button></section><section className="panel"><h2>대기 자금 운용 확인</h2><p>{account?.policy}</p><p className="fine">{account?.terms}</p><Pair label="현재 적용 연이율">{account?.annual_rate}%</Pair><label className="consent"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/><span>초기 주문과 위 이자 운용 방식을 확인했어요. 이후 매매 제안은 다시 승인할게요.</span></label><button className="btn primary wide" disabled={busy || !consent || !validWeights(draft)} onClick={()=>setReview('start')}>이 구성으로 투자 시작</button></section></div>}
+      </div>}
+      {!ready && !finished && alert && <section className="guard-banner" role="status"><div><span className="eyebrow">리스크 가드</span><h2>시장을 잠시 멈췄어요</h2><p>{alert.summary}</p></div><button className="btn primary" onClick={()=>setView('discussion')}>AI와 대응 논의</button></section>}
+      {!ready && view === 'portfolio' && !finished && <>
+        <div className="page-title"><div className="eyebrow">계획이 실제 선택으로 바뀌는 중</div><h1>나의 투자 여정</h1><p>가격의 변화, 기다리는 돈의 이자, 내가 내린 판단을 함께 확인해요.</p></div>
+        <div className="summary-grid"><section className="panel nav-summary"><small>총자산 · 미수이자 포함</small><div className="hero-price">{money(game.nav)}</div><span className={game.return_pct >= 0 ? 'up':'down'}>{pct(game.return_pct)} · {money(game.nav-game.initial)}</span></section><section className="panel"><small>매매 손익 · 수수료 반영</small><h2>{money(game.trading_profit)}</h2><small>가격 변동으로 얻거나 잃은 금액</small></section><section className="panel cash-summary"><small>누적 이자 · 세전</small><h2>{money(account?.accrued ?? 0)}</h2><small>현재 연 {account?.annual_rate}% · 게임 속 기간 기준</small></section></div>
+        {pending && <section className="panel pending-banner"><div><span className="status-chip">체결 대기</span><h2>{pending.kind === 'initial' ? '초기 구성 주문을 접수했어요' : pending.kind === 'rebalance' ? '변경한 구성의 매매를 기다려요':'승인한 주문을 기다려요'}</h2><p>{date(pending.at)} {pending.at.slice(11,16)} · 판단 이후 다음 일봉 시가에 체결돼요.</p></div>{game.status === 'paused' && <button className="btn primary" disabled={busy || !!alert} onClick={()=>void action('resume')}>시장 재개하고 체결 보기</button>}<button className="btn secondary" disabled={busy} onClick={async()=>{if (current.current?.status === 'running' && !await action('pause')) return; await action('cancel');}}>주문 취소</button></section>}
+        <div className="guided-layout"><section className="panel portfolio-panel"><div className="section-title"><h2>내 포트폴리오</h2><button className="btn secondary" disabled={busy || !!pending} onClick={()=>void discuss()}>AI와 구성 다시 논의</button></div><div className="composition-label"><span>현재 비중</span><small>처음 계획과 가격 변화를 비교해요</small></div><div className="allocation-bar"><span className="segment segment-cash" style={{flex:game.cash/game.nav}}/>{game.holdings.map(h=><span key={h.asset} className={'segment segment-' + h.asset} style={{flex:h.value/game.nav}}/>)}</div>{game.holdings.map(h=><button className="portfolio-row" key={h.asset} onClick={()=>{setSelected(h.asset);setView('assets');}}><Badge asset={h.asset}/><span><b>코인 {h.asset}</b><small>{qty(h.quantity)} {h.asset} · 처음 {game.initial_plan?.[h.asset]}%</small></span><span><strong>{money(h.value)}</strong><small>현재 {h.weight.toFixed(1)}% · <em className={h.unrealized >= 0 ? 'up':'down'}>{money(h.unrealized)}</em></small></span></button>)}</section><section className="panel"><div className="eyebrow">기다리는 동안에도</div><h2>이자형 대기 자금</h2><Pair label="대기 자금 원금">{money(game.cash)}</Pair><Pair label="주문 예약금">{money(account?.reserved ?? 0)}</Pair><Pair label="주문 가능 금액">{money(available)}</Pair><Pair label="누적 미수이자">{money(account?.accrued ?? 0)}</Pair><p className="fine">{account?.terms}</p><details><summary>금리와 계산 방식</summary><p className="fine">{account?.policy}. 운용 가능 원금 × 연이율 × 게임 경과 일수 ÷ 365. 이자는 재투자하지 않아요.</p></details></section></div>
+      </>}
+      {!ready && view === 'assets' && !finished && <><div className="page-title"><h1>자산 살펴보기</h1><p>완료된 가격과 각 자산의 특징을 살펴보고, AI와 다음 선택을 논의해요.</p></div><div className="tabs">{aliases.map(a=><button key={a} className={selected === a ? 'selected':''} onClick={()=>setSelected(a)}>코인 {a}</button>)}</div><div className="guided-layout"><section className="panel"><div className="quote-header"><Badge asset={selected}/><div><h2>코인 {selected}</h2><div className="quote"><strong>{money(holding?.price ?? 0)}</strong><span className={(holding?.change_pct ?? 0) >= 0 ? 'up':'down'}>{pct(holding?.change_pct ?? 0)}</span></div></div></div><Chart key={selected} data={game.chart_asset === selected ? game.chart.map(c=>({time:c.time,value:c.close})):[]} label={'코인 ' + selected + ' 확정 일봉'}/><p>{currentAsset?.overview}</p><p className="fine">{currentAsset?.technology} {currentAsset?.supply}</p><ul>{currentAsset?.risks?.map(r=><li key={r}>{r}</li>)}</ul></section><section className="panel"><h2>내 보유 상태</h2><Pair label="보유 수량">{qty(holding?.quantity ?? 0)} {selected}</Pair><Pair label="평가액">{money(holding?.value ?? 0)}</Pair><Pair label="평가손익">{money(holding?.unrealized ?? 0)}</Pair><button className="btn primary wide" disabled={busy || !!pending} onClick={()=>void discuss()}>AI와 매매 검토</button><p className="fine">논의 중에는 시장이 멈추고, 승인한 주문만 자동으로 체결돼요.</p></section></div></>}
+      {!ready && view === 'discussion' && !finished && <><div className="page-title"><h1>{alert ? '지금, 어떤 선택이 좋을까요?' : '구성을 다시 살펴볼까요?'}</h1><p>현재 시점에 멈춰서 근거와 영향을 비교해요. 대화만으로 매매가 실행되지는 않아요.</p></div>{active ? <section className="panel"><button className="btn primary" disabled={busy} onClick={()=>void action('pause')}>시장 멈추고 논의하기</button></section> : <div className="guided-layout discussion-layout">{mentor}<section className="panel decision-panel"><h2>논의 후 내 선택</h2>{alert && <div className="callout neutral"><b>{alert.title}</b><p>{alert.summary}</p><small>제안: {alert.side === 'buy' ? '사용 가능한 대기 자금' : '해당 코인 보유 수량'}의 {alert.percent}% {alert.side === 'buy' ? '매수 검토':'매도 검토'}</small><button className="text-button" disabled={busy || !!pending} onClick={()=>{setSelected(alert.asset);setSide(alert.side ?? 'sell');setDecision('trade');setPercent(String(alert.percent ?? 20));if (alert.side === 'buy') setAmount(String(Math.floor(available*(alert.percent ?? 20)/100)));}}>이 제안을 주문 초안에 담기 →</button></div>}<div className="decision-options">{([['hold','그대로 유지'],['trade','종목 매수·매도'],['rebalance','전체 비중 조정']] as const).map(([v,label])=><button className={decision === v ? 'selected':''} key={v} disabled={busy || !!pending} onClick={()=>setDecision(v)}>{label}</button>)}</div>
+        {decision === 'hold' && <p>매매 없이 현재 구성을 유지해요. 가격 변동 위험은 계속 부담하고, 대기 자금에는 이자가 쌓여요.</p>}
+        {decision === 'rebalance' && <><PlanEditor value={draft} onChange={setDraft} total={game.nav-(account?.accrued ?? 0)} disabled={busy}/><p className="fine">미수이자는 제외해요. 다음 시가에서 매도 후 수수료를 반영해 매수하므로 실제 금액·비중은 달라질 수 있어요.</p></>}
+        {decision === 'trade' && <div className="trade-form"><label>종목<select aria-label="주문 종목" value={selected} onChange={e=>setSelected(e.target.value as Alias)}>{aliases.map(a=><option key={a} value={a}>코인 {a}</option>)}</select></label><div className="tabs"><button className={side === 'buy' ? 'selected':''} onClick={()=>setSide('buy')}>매수</button><button className={side === 'sell' ? 'selected':''} onClick={()=>setSide('sell')}>매도</button></div>{side === 'buy' ? <label>매수 예산 · 수수료 포함<input type="number" aria-label="매수 금액" min="1" max={available} value={amount} onChange={e=>setAmount(e.target.value)}/></label> : <label>보유 수량 중 매도할 비율 (%)<input type="number" aria-label="매도 비율" min=".1" max="100" step=".1" value={percent} onChange={e=>setPercent(e.target.value)}/></label>}<Pair label={side === 'buy' ? '주문 가능 금액':'매도할 수량'}>{side === 'buy' ? money(available):qty(sellQuantity) + ' ' + selected}</Pair><Pair label="예상 수수료">{money(Number.isFinite(fee) ? fee : 0)}</Pair><Pair label={side === 'buy' ? '주문 후 대기 자금':'예상 매도 후 대기 자금'}>{money(side === 'buy' ? game.cash-(buyAmount || 0) : game.cash+(estimateGross-fee || 0))}</Pair></div>}
+        <button className="btn primary wide" disabled={busy || !!pending || (decision === 'trade' && !tradeValid) || (decision === 'rebalance' && !validWeights(draft))} onClick={reviewDecision}>{decision === 'hold' ? '유지 선택 확인':'변경 내용 확인'}</button>{pending && <p className="fine">기존 대기 주문을 먼저 체결하거나 취소해 주세요.</p>}</section></div>}</>}
+      {finished && <><section className="panel result-summary"><div className="eyebrow">5분의 투자, 그리고 나의 판단</div><h1>이번 투자 실험을 마쳤어요</h1><div className="hero-price">{money(game.nav)}</div><span className={game.return_pct >= 0 ? 'up':'down'}>{pct(game.return_pct)} · 시작보다 {money(game.nav-game.initial)}</span><Pair label="매매 순손익 · 수수료 반영">{money(game.trading_profit)}</Pair><Pair label="대기 자금 이자 · 정산 완료">{money(account?.accrued ?? 0)}</Pair><Pair label="매매에 포함된 수수료">{money(game.fees)}</Pair><Pair label="최대 낙폭">{game.mdd_pct.toFixed(2)}%</Pair></section><div className="guided-layout"><section className="panel"><h2>처음 계획과 마지막 구성</h2>{(['cash',...aliases] as const).map(a=><Pair key={a} label={a === 'cash' ? '대기 자금':'코인 ' + a}>{game.initial_plan?.[a] ?? 0}% → {currentWeights?.[a]}%</Pair>)}</section><section className="panel"><h2>나의 선택 돌아보기</h2><p>처음의 계획이 어떻게 바뀌었는지, 가드 앞에서 무엇을 선택했고 실제로 어떤 거래가 체결됐는지 기록에서 확인해 보세요.</p>{revealed ? Object.entries(game.identities ?? {}).map(([a,name])=><Pair key={a} label={'코인 ' + a}>{name}</Pair>):<button className="btn secondary" onClick={()=>setRevealed(true)}>실제 자산 확인</button>}<button className="btn primary wide" disabled={busy} onClick={()=>void reset()}>새 계획으로 다시 투자</button></section></div></>}
+      {(view === 'records' || finished) && <section className="panel records-panel"><h2>판단과 실행 기록</h2>{game.choices.length ? [...game.choices].reverse().map((c,i)=><article className="record" key={'choice-' + i}><small>{date(c.at)}</small><b>{c.summary ?? c.action}</b></article>):<p>아직 투자 전이에요. 구성을 확정하면 기록이 시작돼요.</p>}<h3>실제 체결</h3>{pending && <p className="fine">접수된 주문이 있어요. 다음 일봉 시가 체결을 기다리고 있어요.</p>}{[...game.trades].reverse().map((t,i)=><article className="record" key={'trade-' + i}><small>{date(t.at)} · {t.reason === 'initial' ? '초기 구성' : t.reason === 'rebalance' ? '비중 조정':'승인 주문'}</small><b>코인 {t.asset} {t.side === 'buy' ? '매수':'매도'} {qty(t.quantity)} {t.asset}</b><span>체결가 {money(t.price)} · 수수료 {money(t.fee)}</span></article>)}{!game.trades.length && <p className="fine">아직 체결된 거래가 없어요.</p>}<details><summary>대화 기록 ({game.chat.length})</summary>{game.chat.map(m=><article className="record" key={m.id}><small>{date(m.at)} · {m.status}</small><b>{m.question}</b>{m.paragraphs.map((p,i)=><p key={i}>{p}</p>)}</article>)}</details></section>}
+      <footer><span>실제 과거 시세 · 1억 원 · 활성 재생 300초</span><span>승인 후 다음 일봉 시가 체결 · 수수료 0.05%</span></footer>
+      </>}
+    </main>
+    <nav className="mobile-nav" aria-label="모바일 주 메뉴">{([['portfolio','포트폴리오'],['assets','자산'],['records','기록']] as const).map(([v,label])=><button key={v} className={view === v ? 'selected':''} onClick={()=>setView(v)}>{label}</button>)}</nav>
+    {review && game && <div className="modal-backdrop"><section ref={modal} className="confirm-modal panel" role="dialog" aria-modal="true" aria-labelledby="approval-title"><button className="close" aria-label="확인 닫기" disabled={busy} onClick={()=>setReview(null)}>×</button><div className="eyebrow">마지막으로 확인해 주세요</div><h2 id="approval-title">{review === 'start' ? '처음 구성으로 투자 시작' : review.kind === 'hold' ? '현재 구성 유지' : review.kind === 'rebalance' ? '변경한 비중으로 매매' : '코인 ' + review.asset + ' ' + (review.side === 'buy' ? '매수':'매도')}</h2>{(review === 'start' || review.kind === 'rebalance') && (['cash',...aliases] as const).map(a=><Pair key={a} label={a === 'cash' ? '대기 자금':'코인 ' + a}>{review === 'start' ? draft[a] : review.weights?.[a]}%</Pair>)}{review !== 'start' && review.kind === 'trade' && <><Pair label={review.side === 'buy' ? '수수료 포함 매수 예산':'보유 수량 기준 매도 비율'}>{review.side === 'buy' ? money(review.amount ?? 0):review.percent + '%'}</Pair><Pair label="예상 수수료">{money(fee)}</Pair><Pair label="예상 주문 후 대기 자금">{money(review.side === 'buy' ? game.cash-(review.amount ?? 0):game.cash+estimateGross-fee)}</Pair></>}{review !== 'start' && review.kind === 'hold' ? <p>새 주문 없이 현재 구성을 유지하고 시장을 재개해요.</p>:<div className="callout neutral"><b>승인 후 다음 일봉 시가에 자동 체결돼요</b><p>현재 표시한 예상과 실제 체결 수량·금액은 달라질 수 있어요. 비중 조정은 매도 후 확보한 자금으로 매수해요.</p></div>}{error && <p className="up" role="alert">{error}</p>}<button className="btn primary wide" disabled={busy} onClick={()=>void approve()}>{busy ? '처리 중…' : review === 'start' ? '확정하고 자동 투자 시작' : review.kind === 'hold' ? '유지하고 시장 재개':'이 주문 승인하고 자동 실행'}</button><button className="btn secondary wide" disabled={busy} onClick={()=>setReview(null)}>다시 논의하기</button></section></div>}
   </div>;
 }

@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .engine import Engine, fresh, weights
 from .market import Market, ROOT, START, CATALOG
 from .blob_store import BlobSessions, StorageConflict
+from .mentor import discuss
 
 app = FastAPI(title="ERU AI Alpha V1", docs_url=None, redoc_url=None, openapi_url=None)
 lock = threading.RLock()
@@ -95,6 +96,23 @@ class Decision(Strict):
     alert_id: str = Field(max_length=120)
     action: Literal["accept", "modify", "ignore"]
     percent: float | None = Field(None, gt=0, le=100)
+
+
+class Chat(Strict):
+    request_id: uuid.UUID
+    question: str = Field(min_length=1, max_length=600)
+    asset: Literal["A", "B", "C", "D"] = "A"
+    draft: dict[str, float]
+
+
+class ApprovedOrder(Strict):
+    kind: Literal["hold", "trade", "rebalance"]
+    alert_id: str | None = Field(None, max_length=120)
+    asset: Literal["A", "B", "C", "D"] | None = None
+    side: Literal["buy", "sell"] | None = None
+    amount: float | None = Field(None, gt=0, le=1e16)
+    percent: float | None = Field(None, gt=0, le=100)
+    weights: dict[str, float] | None = None
 
 
 def save(sid, state):
@@ -188,7 +206,7 @@ def update_cloud(sid, action, alias="A", read_only=False):
 @app.get("/api/health")
 def health():
     ready = data_ready and (not IS_CLOUD or cloud_store is not None)
-    return {"status": "ready" if ready else "data_required", "version": "모의투자 V2",
+    return {"status": "ready" if ready else "data_required", "version": "AI 동행 투자 V3",
             "storage": "private_blob" if IS_CLOUD else "sqlite"}
 
 
@@ -209,11 +227,16 @@ def create_paper():
     return create_session(True)
 
 
-def create_session(paper):
+@app.post("/api/guided-sessions")
+def create_guided():
+    return create_session(False, guided=True)
+
+
+def create_session(paper, guided=False):
     if not data_ready:
         raise HTTPException(503, "시세 데이터 수집 및 검증이 필요합니다.")
     with lock:
-        sid, state = str(uuid.uuid4()), fresh(paper=paper)
+        sid, state = str(uuid.uuid4()), fresh(paper=paper, guided=guided)
         if IS_CLOUD:
             if cloud_store is None:
                 raise HTTPException(503, "게임 저장소를 준비 중입니다.")
@@ -260,6 +283,8 @@ def resume(sid: str):
     def action(s):
         if s["status"] != "paused":
             raise ValueError("일시정지한 게임만 재개할 수 있습니다.")
+        if s.get("mode") == "guided" and any(a["decision"] is None for a in s["alerts"]):
+            raise ValueError("가드의 근거를 확인하고 유지 또는 매매를 선택하세요.")
         for a in s["alerts"]:
             if a["decision"] is None:
                 a["decision"] = "ignore"
@@ -290,15 +315,75 @@ def rebalance(sid: str, body: Allocation):
 @app.post("/api/sessions/{sid}/cancel")
 def cancel(sid: str):
     def action(s):
-        if s["status"] != "paused" or not s["pending"] or s["pending"]["kind"] == "initial":
+        if s["status"] != "paused" or not s["pending"] or (s["pending"]["kind"] == "initial" and s.get("mode") != "guided"):
             raise ValueError("취소할 수 있는 대기 주문이 없습니다.")
         s["pending"] = None
+        if s.get("mode") == "guided":
+            s["choices"].append({"at": s["now"], "action": "cancel", "summary": "미체결 주문을 취소했습니다."})
     return update(sid, action)
 
 
 @app.post("/api/sessions/{sid}/decision")
 def decision(sid: str, body: Decision):
     return update(sid, lambda s: engine.decide(s, body.alert_id, body.action, body.percent))
+
+
+@app.post("/api/sessions/{sid}/approved-order")
+def approved_order(sid: str, body: ApprovedOrder):
+    def action(s):
+        if s.get("mode") != "guided":
+            raise ValueError("AI 동행 투자에서 사용할 수 있습니다.")
+        engine.editable(s)
+        unresolved = next((a for a in reversed(s["alerts"]) if a["decision"] is None), None)
+        alert = next((a for a in s["alerts"] if a["id"] == body.alert_id), None) if body.alert_id else None
+        if body.alert_id and (not alert or alert["decision"] is not None):
+            raise ValueError("이미 처리했거나 유효하지 않은 가드입니다.")
+        if unresolved and alert is not unresolved:
+            raise ValueError("현재 가드에 대한 대응을 확인하세요.")
+        summary = "매매 없이 현재 구성을 유지했습니다."
+        if body.kind == "trade":
+            engine.order(s, body.asset, body.side, amount=body.amount, percent=body.percent)
+            summary = f"코인 {body.asset} {'매수' if body.side == 'buy' else '매도'} 주문을 승인했습니다."
+        elif body.kind == "rebalance":
+            engine.rebalance(s, body.weights or {})
+            summary = "변경한 비중으로 매도 후 매수하는 주문을 승인했습니다."
+        if alert:
+            alert["decision"] = "hold" if body.kind == "hold" else "approved"
+        s["choices"].append({"at": s["now"], "action": body.kind, "alert_id": body.alert_id,
+                             "summary": summary})
+        s["status"] = "running"
+    return update(sid, action)
+
+
+@app.post("/api/sessions/{sid}/chat")
+def chat(sid: str, body: Chat):
+    request_id = str(body.request_id)
+    def begin(s):
+        if s.get("mode") != "guided" or s["status"] == "finished":
+            raise ValueError("진행 중인 AI 동행 투자에서 질문하세요.")
+        if any(c["id"] == request_id for c in s["chat"]):
+            return
+        weights(body.draft)
+        wall = time.time()
+        if s["chat_count"] >= 40:
+            raise ValueError("이 게임의 대화 40회를 모두 사용했습니다. 구성 수정과 매매는 계속할 수 있습니다.")
+        if wall - s["chat_wall"] < 2:
+            raise ValueError("이전 질문을 처리 중입니다. 잠시 후 질문하세요.")
+        if s["status"] == "running":
+            s["status"] = "paused"
+        s["chat_count"] += 1
+        s["chat_wall"] = wall
+        s["chat_request"] = request_id
+    snapshot = update(sid, begin, body.asset)
+    if any(c["id"] == request_id for c in snapshot["chat"]):
+        return snapshot
+    reply = discuss(snapshot, body.question.strip(), body.asset, body.draft)
+    def finish(s):
+        if s.get("chat_request") != request_id or s["now"] != snapshot["now"] or s["status"] != snapshot["status"]:
+            raise ValueError("논의 중 투자 상태가 바뀌었습니다. 현재 상태에서 다시 질문하세요.")
+        if not any(c["id"] == request_id for c in s["chat"]):
+            s["chat"].append({"id": request_id, "at": s["now"], **reply})
+    return update(sid, finish, body.asset)
 
 
 dist = ROOT / "frontend/dist"

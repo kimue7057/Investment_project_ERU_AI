@@ -1,0 +1,16 @@
+flowchart LR
+    entry(["AI와 투자 시작"]) --> learn["자산 특징 함께 보기"]
+    learn --> plan["AI와 비중 계획"]
+    plan --> review["주문과 이자 조건 확인"]
+    review --> confirm["이 구성으로 시작"]
+    confirm --> pending["초기 주문 접수"]
+    pending --> fill["다음 일봉 시가 체결"]
+    fill --> operate[["시세 · 이자 · 가드"]]
+    operate -->|"활성 재생 300초 종료"| result["매매손익 · 이자 분리"]
+    result --> reflect(["계획과 선택 복기"])
+    style learn fill:#DCCCFF,stroke:#874FFF
+    style plan fill:#DCCCFF,stroke:#874FFF
+    style confirm fill:#C2E5FF,stroke:#3DADFF
+    style pending fill:#FFECBD,stroke:#FFC943
+    style operate fill:#C2E5FF,stroke:#3DADFF
+    style reflect fill:#CDF4D3,stroke:#66D575

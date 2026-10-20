@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from .market import ALIASES, START, END
+from .interest import accrue, public_interest
 
 D = Decimal
 INITIAL = D("100000000")
@@ -32,7 +33,7 @@ def weights(value):
     return value
 
 
-def fresh(paper=False):
+def fresh(paper=False, guided=False):
     state = {"status": "ready", "elapsed": 0.0, "now": START.isoformat(), "cash": str(INITIAL),
             "holdings": {a: "0" for a in ALIASES}, "costs": {a: "0" for a in ALIASES},
             "realized": "0", "fees": "0", "trades": [], "pending": None,
@@ -44,6 +45,9 @@ def fresh(paper=False):
         state["mode"] = "paper"
         state["targets"] = {"cash": "100", **{a: "0" for a in ALIASES}}
         state["baseline"] = {"cash": str(INITIAL), "holdings": state["holdings"].copy()}
+    if guided:
+        state.update({"mode": "guided", "interest": "0", "interest_settled": False,
+                      "initial_plan": None, "chat": [], "chat_count": 0, "chat_wall": 0})
     return state
 
 
@@ -55,7 +59,8 @@ class Engine:
         return datetime.fromisoformat(s["now"])
 
     def nav(self, s):
-        return D(s["cash"]) + sum(D(s["holdings"][a]) * self.market.quote(a, self.now(s)) for a in ALIASES)
+        interest = D(s.get("interest", "0")) if not s.get("interest_settled") else D(0)
+        return D(s["cash"]) + interest + sum(D(s["holdings"][a]) * self.market.quote(a, self.now(s)) for a in ALIASES)
 
     def editable(self, s):
         if s["status"] != "paused":
@@ -71,7 +76,13 @@ class Engine:
         w = weights(allocation)
         s["targets"] = {a: str(v) for a, v in w.items()}
         at = self.market.next_open(self.now(s))
-        s["pending"] = {"kind": "initial", "at": at.isoformat(), "weights": s["targets"].copy()}
+        s["pending"] = ({"kind": "initial", "at": at.isoformat(), "weights": s["targets"].copy()}
+                        if s.get("mode") != "guided" or any(w[a] > 0 for a in ALIASES) else None)
+        if s.get("mode") == "guided":
+            s["initial_plan"] = s["targets"].copy()
+            s["choices"].append({"at": s["now"], "action": "start", "summary": "초기 구성과 대기 자금 이자 운용을 승인했습니다."})
+            if not s["pending"]:
+                s["baseline"] = {"cash": s["cash"], "holdings": s["holdings"].copy()}
         s["status"] = "running"
 
     def play(self, s):
@@ -173,7 +184,8 @@ class Engine:
             target = {a: lo * w[a] for a in ALIASES}
             for a in ALIASES:
                 if current[a] > target[a]:
-                    self.trade(s, a, "sell", prices[a], quantity=(current[a] - target[a]) / prices[a], reason="rebalance")
+                    quantity = D(s["holdings"][a]) if target[a] == 0 else (current[a] - target[a]) / prices[a]
+                    self.trade(s, a, "sell", prices[a], quantity=quantity, reason="rebalance")
             for a in ALIASES:
                 if target[a] > current[a]:
                     budget = min((target[a] - current[a]) * (1 + FEE), D(s["cash"]))
@@ -194,7 +206,8 @@ class Engine:
 
     def guard(self, s):
         now = self.now(s)
-        if s["last_alert"] and now - datetime.fromisoformat(s["last_alert"]) < timedelta(days=14):
+        cooldown = 90 if s.get("mode") == "guided" else 14
+        if s["last_alert"] and now - datetime.fromisoformat(s["last_alert"]) < timedelta(days=cooldown):
             return None
         nav = self.nav(s)
         for a in ALIASES:
@@ -238,16 +251,28 @@ class Engine:
         for at in points:
             if at > target:
                 break
+            accrue(s, at)
             s["now"] = at.isoformat()
             s["elapsed"] = (at - START).total_seconds() / SPAN * DURATION
             self.execute(s)
             self.record(s)
             if at >= END:
+                if s.get("mode") == "guided" and not s.get("interest_settled"):
+                    s["cash"] = str(D(s["cash"]) + D(s["interest"]))
+                    s["interest_settled"] = True
                 s["status"] = "finished"
                 s["elapsed"] = DURATION
                 return
             if s.get("mode") == "paper":
                 continue  # Manual trading has no research releases or automatic alerts.
+            if s.get("mode") == "guided":
+                alert = self.guard(s) if not s["pending"] else None
+                if alert:
+                    s["alerts"].append(alert)
+                    s["last_alert"] = s["now"]
+                    s["status"] = "paused"
+                    return
+                continue  # 자료 공개 알림은 사용하지 않는다.
             new_docs = [e for e in self.market.events if datetime.fromisoformat(e["available_at_kst"]) == at]
             alert = ({"id": "news-" + new_docs[0]["event_id"], "at": s["now"], "kind": "research",
                      "title": "새로운 공식 자료가 공개됐습니다", "summary": "현재 날짜에 공개된 투자자료를 확인하고 판단할 수 있습니다.",
@@ -257,6 +282,7 @@ class Engine:
                 s["last_alert"] = s["now"]
                 s["status"] = "paused"
                 return
+        accrue(s, target)
         s["now"] = target.isoformat()
         s["elapsed"] = elapsed
 
@@ -297,7 +323,7 @@ class Engine:
             "history": copy.deepcopy(s["history"]), "guard": "always_on", "fee_rate": float(FEE)})
         if s["status"] == "finished":
             public["identities"] = {"A": "비트코인 · BTC", "B": "이더리움 · ETH", "C": "솔라나 · SOL", "D": "도지코인 · DOGE"}
-            b = s["baseline"]
+            b = s["baseline"] or {"cash": str(INITIAL), "holdings": {a: "0" for a in ALIASES}}
             baseline_nav = D(b["cash"]) + sum(D(b["holdings"][a]) * self.market.quote(a, now) for a in ALIASES)
             public["baseline_return_pct"] = float((baseline_nav / INITIAL - 1) * 100)
         if s.get("mode") == "paper":
@@ -307,4 +333,12 @@ class Engine:
                        "chart_asset", "trades", "history", "fee_rate", "identities")
             public = {k: public[k] for k in allowed if k in public}
             public["mode"] = "paper"
+        if s.get("mode") == "guided":
+            allowed = ("status", "elapsed", "now", "targets", "pending", "alerts", "choices", "initial", "duration",
+                       "nav", "cash", "return_pct", "realized", "unrealized", "fees", "mdd_pct", "holdings", "chart",
+                       "chart_asset", "trades", "history", "fee_rate", "identities", "guard")
+            public = {k: public[k] for k in allowed if k in public}
+            public.update({"mode": "guided", "interest_account": public_interest(s, now),
+                           "initial_plan": copy.deepcopy(s["initial_plan"]), "chat": copy.deepcopy(s["chat"]),
+                           "trading_profit": float(D(s["realized"])) + sum(h["unrealized"] for h in holdings)})
         return public

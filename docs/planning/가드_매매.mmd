@@ -1,0 +1,22 @@
+flowchart LR
+    signal(["중요 리스크 감지"]) --> pause["시장 일시정지"]
+    pause --> reason["근거와 내 자산 영향"]
+    reason --> discuss["AI와 대응 논의"]
+    discuss --> choice{"대응 선택"}
+    choice -->|"유지"| keep["유지 이유 기록"]
+    keep --> resume(["시장 재개"])
+    choice -->|"매수 · 매도 · 비중 조정"| draft["구체적 주문 구성"]
+    draft --> preview["변경 전후 · 비용 확인"]
+    preview --> approve{"이 주문 승인"}
+    approve -->|"다시 논의"| discuss
+    approve -->|"승인"| pending["승인 주문 접수"]
+    pending --> advance["시장 재개"]
+    advance --> fill["다음 일봉 시가 체결"]
+    fill --> result["체결 결과 · 잔고 표시"]
+    result --> resume
+    style signal fill:#FFE0C2,stroke:#FF9E42
+    style pause fill:#FFECBD,stroke:#FFC943
+    style discuss fill:#DCCCFF,stroke:#874FFF
+    style approve fill:#C2E5FF,stroke:#3DADFF
+    style pending fill:#FFECBD,stroke:#FFC943
+    style result fill:#CDF4D3,stroke:#66D575

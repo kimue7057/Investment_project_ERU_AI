@@ -158,6 +158,27 @@ def test_cloud_session_paths_do_not_accept_arbitrary_objects():
     assert s.path(str(uuid.uuid4())).endswith(".json")
 
 
+def test_guided_interest_checkpoint_reconstruction_and_frozen_dialogue(cloud):
+    c, store, wall = cloud
+    s = c.post("/api/guided-sessions", json={}).json()
+    url = f"/api/sessions/{s['id']}"
+    c.post(url+"/start", json={"weights":{"cash":100,"A":0,"B":0,"C":0,"D":0}})
+    wall[0] += .5
+    first = c.get(url).json()
+    assert first["interest_account"]["accrued"] > 0 and first["cash"] == 100000000
+    same = c.get(url).json()
+    assert same["interest_account"] == first["interest_account"]
+    wall[0] += 1
+    second = c.get(url).json()
+    assert abs(second["interest_account"]["accrued"] / first["interest_account"]["accrued"] - 3) < 1e-8
+    stopped = c.post(url+"/pause", json={}).json()
+    wall[0] += 100
+    recovered = c.get(url).json()
+    assert recovered["now"] == stopped["now"]
+    assert recovered["interest_account"] == stopped["interest_account"]
+    assert recovered["mode"] == "guided" and "research" not in recovered
+
+
 def test_private_delivery_compression_cannot_break_compare_and_swap():
     def handler(request):
         assert request.headers["accept-encoding"] == "identity"
