@@ -48,6 +48,26 @@ def start_cloud(client):
     return url
 
 
+def test_paper_cloud_recovery_and_no_automatic_alerts(cloud):
+    c, store, wall = cloud
+    s = c.post("/api/paper-sessions", json={}).json()
+    url = f"/api/sessions/{s['id']}"
+    assert c.post(url + "/play", json={}).json()["pending"] is None
+    for _ in range(5):
+        wall[0] += 10
+        state = c.get(url).json()
+        assert state["status"] == "running" and "alerts" not in state and "research" not in state
+    main.anchors.clear()
+    recovered = c.get(url).json()
+    assert recovered["mode"] == "paper" and recovered["cash"] == 100000000
+    assert c.post(url + "/pause", json={}).status_code == 200
+    assert c.post(url + "/orders", json={"asset": "C", "side": "buy", "amount": 1000000}).status_code == 200
+    assert c.post(url + "/resume", json={}).status_code == 200
+    wall[0] += 1
+    filled = c.get(url).json()
+    assert len(filled["trades"]) == 1 and filled["cash"] == 99000000
+
+
 def test_cold_instances_share_clock_and_state(cloud):
     c, store, wall = cloud
     url = start_cloud(c)

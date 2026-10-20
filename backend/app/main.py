@@ -88,6 +88,7 @@ class Trade(Strict):
     side: Literal["buy", "sell"]
     amount: float | None = Field(None, gt=0, le=1e16)
     percent: float | None = Field(None, gt=0, le=100)
+    quantity: str | None = Field(None, max_length=100)
 
 
 class Decision(Strict):
@@ -180,23 +181,32 @@ def update_cloud(sid, action, alias="A", read_only=False):
 @app.get("/api/health")
 def health():
     ready = data_ready and (not IS_CLOUD or cloud_store is not None)
-    return {"status": "ready" if ready else "data_required", "version": "Alpha V1",
+    return {"status": "ready" if ready else "data_required", "version": "모의투자 V2",
             "storage": "private_blob" if IS_CLOUD else "sqlite"}
 
 
 @app.get("/api/catalog")
 def catalog():
-    return {"as_of": START.isoformat(), "assets": CATALOG, "initial": 100000000,
+    return {"as_of": START.isoformat(), "assets": [a for a in CATALOG if a["alias"] in "ABCD"], "initial": 100000000,
             "duration": 300, "start": "2022-11-07", "end": "2026-08-05",
-            "research": market.research(START) if data_ready else []}
+            "research": []}
 
 
 @app.post("/api/sessions")
 def create():
+    return create_session(False)
+
+
+@app.post("/api/paper-sessions")
+def create_paper():
+    return create_session(True)
+
+
+def create_session(paper):
     if not data_ready:
         raise HTTPException(503, "시세 데이터 수집 및 검증이 필요합니다.")
     with lock:
-        sid, state = str(uuid.uuid4()), fresh()
+        sid, state = str(uuid.uuid4()), fresh(paper=paper)
         if IS_CLOUD:
             if cloud_store is None:
                 raise HTTPException(503, "게임 저장소를 준비 중입니다.")
@@ -220,6 +230,11 @@ def state(sid: str, asset: str = "A"):
 @app.post("/api/sessions/{sid}/start")
 def start(sid: str, body: Allocation):
     return update(sid, lambda s: engine.start(s, body.weights))
+
+
+@app.post("/api/sessions/{sid}/play")
+def play(sid: str):
+    return update(sid, lambda s: engine.play(s))
 
 
 @app.post("/api/sessions/{sid}/pause")
@@ -248,7 +263,7 @@ def resume(sid: str):
 
 @app.post("/api/sessions/{sid}/orders")
 def trade(sid: str, body: Trade):
-    return update(sid, lambda s: engine.order(s, body.asset, body.side, body.amount, body.percent))
+    return update(sid, lambda s: engine.order(s, body.asset, body.side, body.amount, body.percent, body.quantity))
 
 
 @app.post("/api/sessions/{sid}/targets")

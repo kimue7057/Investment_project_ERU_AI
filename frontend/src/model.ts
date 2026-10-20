@@ -11,8 +11,8 @@ export type Research = {event_id: string; asset_alias: string; published_on: str
 export type Asset = {alias: string; name: string; category: string; available?: boolean; overview: string; technology?: string; supply?: string; risks?: string[]; document_label?: string};
 export type Alert = {id: string; at: string; kind: string; asset: Alias; side?: 'buy'|'sell'; title: string; summary: string; percent?: number; decision: string | null};
 export type Trade = {at: string; asset: Alias; side: string; quantity: string; price: string; gross: string; fee: string; reason: string};
-export type Game = {id: string; status: 'ready'|'running'|'paused'|'finished'; elapsed: number; now: string; nav: number; cash: number; initial: number; return_pct: number; realized: number; unrealized: number; fees: number; mdd_pct: number; targets: Record<string, string>; guard: string;
-  holdings: {asset: Alias; quantity: string; price: number; value: number; weight: number; unrealized: number}[];
+export type Game = {mode?: "paper"; fee_rate?: number; id: string; status: 'ready'|'running'|'paused'|'finished'; elapsed: number; now: string; nav: number; cash: number; initial: number; return_pct: number; realized: number; unrealized: number; fees: number; mdd_pct: number; targets: Record<string, string>; guard: string;
+  holdings: {average_cost: number; change_pct: number; asset: Alias; quantity: string; price: number; value: number; weight: number; unrealized: number}[];
   chart_asset: string; chart: {time: string; open: number; high: number; low: number; close: number; volume: number}[];
   pending: {kind: string; at: string; asset?: string; side?: string; budget?: string; quantity?: string} | null;
   alerts: Alert[]; choices: {action: string}[]; research: Research[]; trades: Trade[]; history: {time: string; value: number}[];

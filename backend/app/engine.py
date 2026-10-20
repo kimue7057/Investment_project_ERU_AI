@@ -32,14 +32,19 @@ def weights(value):
     return value
 
 
-def fresh():
-    return {"status": "ready", "elapsed": 0.0, "now": START.isoformat(), "cash": str(INITIAL),
+def fresh(paper=False):
+    state = {"status": "ready", "elapsed": 0.0, "now": START.isoformat(), "cash": str(INITIAL),
             "holdings": {a: "0" for a in ALIASES}, "costs": {a: "0" for a in ALIASES},
             "realized": "0", "fees": "0", "trades": [], "pending": None,
             "targets": {"cash": "20", "A": "30", "B": "20", "C": "15", "D": "15"},
             "history": [{"time": START.isoformat(), "value": float(INITIAL)}],
             "peak": str(INITIAL), "mdd": "0", "alerts": [], "choices": [],
             "seen_signals": [], "last_alert": None, "baseline": None}
+    if paper:
+        state["mode"] = "paper"
+        state["targets"] = {"cash": "100", **{a: "0" for a in ALIASES}}
+        state["baseline"] = {"cash": str(INITIAL), "holdings": state["holdings"].copy()}
+    return state
 
 
 class Engine:
@@ -59,6 +64,8 @@ class Engine:
             raise ValueError("대기 주문이 있습니다. 취소하거나 시장을 재개해 체결하세요.")
 
     def start(self, s, allocation):
+        if s.get("mode") == "paper":
+            raise ValueError("모의투자는 초기 비중 설정 없이 시작하세요.")
         if s["status"] != "ready":
             raise ValueError("이미 시작된 게임입니다.")
         w = weights(allocation)
@@ -67,13 +74,22 @@ class Engine:
         s["pending"] = {"kind": "initial", "at": at.isoformat(), "weights": s["targets"].copy()}
         s["status"] = "running"
 
-    def order(self, s, asset, side, amount=None, percent=None):
+    def play(self, s):
+        if s.get("mode") != "paper" or s["status"] != "ready":
+            raise ValueError("시작 전 모의투자만 시작할 수 있습니다.")
+        s["status"] = "running"
+
+    def order(self, s, asset, side, amount=None, percent=None, quantity=None):
         self.editable(s)
         if asset not in ALIASES or side not in ("buy", "sell"):
             raise ValueError("거래할 수 없는 상품 또는 주문입니다.")
-        if (amount is None) == (percent is None):
-            raise ValueError("금액 또는 비율 중 하나를 입력하세요.")
-        if percent is not None:
+        if sum(v is not None for v in (amount, percent, quantity)) != 1:
+            raise ValueError("금액, 수량, 비율 중 하나를 입력하세요.")
+        if quantity is not None:
+            if side != "sell":
+                raise ValueError("수량 주문은 매도에서만 사용할 수 있습니다.")
+            quantity, budget = number(quantity), None
+        elif percent is not None:
             p = number(percent)
             if not 0 < p <= 100:
                 raise ValueError("주문 비율은 0 초과 100% 이하여야 합니다.")
@@ -95,6 +111,8 @@ class Engine:
                         "quantity": str(quantity) if quantity is not None else None}
 
     def rebalance(self, s, allocation):
+        if s.get("mode") == "paper":
+            raise ValueError("모의투자에서는 종목별 매수·매도를 사용하세요.")
         self.editable(s)
         w = weights(allocation)
         s["targets"] = {a: str(v) for a, v in w.items()}
@@ -228,6 +246,8 @@ class Engine:
                 s["status"] = "finished"
                 s["elapsed"] = DURATION
                 return
+            if s.get("mode") == "paper":
+                continue  # Manual trading has no research releases or automatic alerts.
             new_docs = [e for e in self.market.events if datetime.fromisoformat(e["available_at_kst"]) == at]
             alert = ({"id": "news-" + new_docs[0]["event_id"], "at": s["now"], "kind": "research",
                      "title": "새로운 공식 자료가 공개됐습니다", "summary": "현재 날짜에 공개된 투자자료를 확인하고 판단할 수 있습니다.",
@@ -258,7 +278,10 @@ class Engine:
         if alias not in ALIASES:
             raise ValueError("지원하지 않는 상품입니다.")
         now, nav = self.now(s), self.nav(s)
+        completed = {a: self.market.completed(a, now) for a in ALIASES}
         holdings = [{"asset": a, "quantity": s["holdings"][a],
+                    "average_cost": float(D(s["costs"][a]) / D(s["holdings"][a])) if D(s["holdings"][a]) else 0,
+                    "change_pct": float((completed[a][-1]["close"] / completed[a][-2]["close"] - 1) * 100),
                     "price": float(self.market.quote(a, now)),
                     "value": float(D(s["holdings"][a]) * self.market.quote(a, now)),
                     "weight": float(D(s["holdings"][a]) * self.market.quote(a, now) / nav * 100),
@@ -270,11 +293,18 @@ class Engine:
             "realized": float(D(s["realized"])), "unrealized": sum(h["unrealized"] for h in holdings),
             "fees": float(D(s["fees"])), "mdd_pct": float(D(s["mdd"]) * 100),
             "holdings": holdings, "chart": self.market.public_chart(alias, now), "chart_asset": alias,
-            "research": self.market.research(now), "trades": copy.deepcopy(s["trades"]),
+            "research": [] if s.get("mode") == "paper" else self.market.research(now), "trades": copy.deepcopy(s["trades"]),
             "history": copy.deepcopy(s["history"]), "guard": "always_on", "fee_rate": float(FEE)})
         if s["status"] == "finished":
             public["identities"] = {"A": "비트코인 · BTC", "B": "이더리움 · ETH", "C": "솔라나 · SOL", "D": "도지코인 · DOGE"}
             b = s["baseline"]
             baseline_nav = D(b["cash"]) + sum(D(b["holdings"][a]) * self.market.quote(a, now) for a in ALIASES)
             public["baseline_return_pct"] = float((baseline_nav / INITIAL - 1) * 100)
+        if s.get("mode") == "paper":
+            # The paper UI has an explicit public contract; legacy system fields stay private.
+            allowed = ("status", "elapsed", "now", "pending", "initial", "duration", "nav", "cash",
+                       "return_pct", "realized", "unrealized", "fees", "mdd_pct", "holdings", "chart",
+                       "chart_asset", "trades", "history", "fee_rate", "identities")
+            public = {k: public[k] for k in allowed if k in public}
+            public["mode"] = "paper"
         return public
