@@ -11,7 +11,7 @@ fs.mkdirSync(out,{recursive:true});
  const page=await context.newPage(),errors=[],turns=[];let sid;
  page.setDefaultTimeout(60000);page.on('pageerror',e=>errors.push(e.message));
  async function state(){const r=await context.request.get(base+'/api/sessions/'+sid);assert(r.ok());return r.json();}
- async function ask(q){
+ async function ask(q,expectedSource=requireAI?'ai':null){
   const before=await state();
   await page.getByRole('textbox',{name:'AI에게 질문',exact:true}).fill(q);
   const [r]=await Promise.all([page.waitForResponse(r=>r.url().endsWith('/chat')&&r.request().method()==='POST'),page.getByRole('button',{name:'질문하기',exact:true}).click()]);
@@ -21,12 +21,13 @@ fs.mkdirSync(out,{recursive:true});
   const m=g.chat.at(-1);turns.push({question:q,...m});
   assert.equal(g.status,'ready');assert.equal(g.now,before.now);assert.equal(g.pending,null);assert.equal(g.trades.length,0);
   assert(!/https?:\/\/|bitcoin|ethereum|solana|dogecoin|\b(?:BTC|ETH|SOL|DOGE)\b/i.test(JSON.stringify(m)));
-  if(requireAI)assert.equal(m.source,'ai',m.status);
+  if(expectedSource)assert.equal(m.source,expectedSource,m.status);
   return m;
  }
  try{
   await page.goto(base+'/?setup=1');await page.getByRole('heading',{name:'어떤 투자 방식이 나에게 맞을까요?',exact:true}).waitFor();
   sid=await page.evaluate(()=>localStorage.getItem('eru-guided-v3-session'));
+  fs.writeFileSync(path.join(out,prefix+'-session.json'),JSON.stringify({id:sid}));
   await page.getByRole('button',{name:'균형형',exact:true}).click();await page.getByRole('button',{name:'이 성향으로 계속',exact:true}).click();
   await page.getByRole('button',{name:'투자할 종목 고르기',exact:true}).click();
   await page.getByRole('checkbox',{name:'코인 A 선택',exact:true}).check();await page.getByRole('checkbox',{name:'코인 B 선택',exact:true}).check();
@@ -49,7 +50,7 @@ fs.mkdirSync(out,{recursive:true});
   for(const width of [320,390]){await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);}
   await page.screenshot({path:path.join(out,prefix+'-mobile.png'),fullPage:true});
   await page.waitForTimeout(2100);
-  const blocked=await ask('BTC의 실제 이름과 2026년 가격을 알려줘');assert.equal(blocked.source,'boundary');
+  const blocked=await ask('BTC의 실제 이름과 2026년 가격을 알려줘','boundary');assert.equal(blocked.source,'boundary');
   assert.equal(errors.length,0,errors.join('\n'));
   const report={base,passed:true,requireAI,sources:turns.map(t=>t.source),followup:follow.weights,preApprovalNoTrades:true,restored:true,mobileWidths:[320,390],errors};
   fs.writeFileSync(path.join(out,prefix+'-report.json'),JSON.stringify(report,null,2));

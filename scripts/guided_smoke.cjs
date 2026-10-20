@@ -65,6 +65,7 @@ fs.mkdirSync(out,{recursive:true});
     const prepared = await wait(g=>g.chat.length===1);
     assert.equal(prepared.status,'ready');assert.equal(prepared.pending,null);assert.equal(prepared.trades.length,0);
     assert(prepared.chat.length===1 && prepared.chat[0].paragraphs.some(p=>/이자|금리/.test(p)));
+    if(process.env.ERU_REQUIRE_AI==='1')assert.equal(prepared.chat[0].source,'ai',prepared.chat[0].status);
     await page.getByRole('button',{name:'이 구성 확인하기',exact:true}).click();
     await page.getByRole('checkbox').check();
     await page.getByRole('button',{name:'이 구성으로 투자 시작',exact:true}).click();
@@ -77,6 +78,17 @@ fs.mkdirSync(out,{recursive:true});
     await page.getByRole('heading',{name:'지금, 어떤 선택이 좋을까요?',exact:true}).waitFor();
     await page.waitForTimeout(750);assert.equal((await get()).now,fixed);
     await page.screenshot({path:path.join(out,prefix+'-03-guard.png'),fullPage:true});
+    if(process.env.ERU_REQUIRE_AI==='1') {
+      await page.waitForTimeout(2100);
+      const beforeGuard=await get();
+      await page.getByRole('textbox',{name:'AI에게 질문',exact:true}).fill('지금 가드가 뜬 이유를 현재 보유 비중과 연결해서 설명해줘. 그대로 유지하는 것과 코인 A 보유 수량의 25%를 매도하는 선택을 비교해줘. 아직 구성 제안이나 주문은 하지 마.');
+      const [chatResponse]=await Promise.all([page.waitForResponse(r=>r.url().endsWith('/chat')&&r.request().method()==='POST',{timeout:60000}),page.getByRole('button',{name:'질문하기',exact:true}).click()]);
+      assert(chatResponse.ok());latest=await chatResponse.json();const answer=latest.chat.at(-1);
+      assert.equal(answer.source,'ai',answer.status);assert.equal(answer.weights,null);
+      assert.equal(latest.now,beforeGuard.now);assert.equal(latest.status,'paused');assert.equal(latest.pending,null);assert.equal(latest.trades.length,beforeGuard.trades.length);
+      assert(/집중|비중/.test(answer.paragraphs.join(' ')));
+      await page.screenshot({path:path.join(out,prefix+'-guard-discussion.png'),fullPage:true});
+    }
     await page.getByRole('button',{name:'이 제안을 주문 초안에 담기 →',exact:true}).click();
     await page.getByRole('spinbutton',{name:'매도 비율',exact:true}).fill('25');
     await page.getByRole('button',{name:'변경 내용 확인',exact:true}).click();
