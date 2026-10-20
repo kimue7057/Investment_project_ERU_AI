@@ -363,6 +363,8 @@ def chat(sid: str, body: Chat):
             raise ValueError("진행 중인 AI 동행 투자에서 질문하세요.")
         if any(c["id"] == request_id for c in s["chat"]):
             return
+        if s.get("chat_request") == request_id:
+            raise ValueError("이 질문을 처리 중입니다. 같은 질문을 중복 접수하지 않습니다.")
         weights(body.draft)
         wall = time.time()
         if s["chat_count"] >= 40:

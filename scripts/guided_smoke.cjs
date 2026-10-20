@@ -27,8 +27,29 @@ fs.mkdirSync(out,{recursive:true});
     await page.getByRole('spinbutton',{name:'대기 자금 비중',exact:true}).fill(String(cash));
     for(const [alias,w] of [['A',a],['B',0],['C',0],['D',0]]) await page.getByRole('spinbutton',{name:'코인 '+alias+' 비중',exact:true}).fill(String(w));
   }
+  async function approveHold() {
+    await page.getByRole('button',{name:'그대로 유지',exact:true}).click();
+    await page.getByRole('button',{name:'유지 선택 확인',exact:true}).click();
+    const [response] = await Promise.all([
+      page.waitForResponse(r=>r.request().method()==='POST' && r.url().endsWith('/approved-order')),
+      page.getByRole('button',{name:'유지하고 시장 재개',exact:true}).click(),
+    ]);
+    assert(response.ok(),'유지 승인 응답 실패: '+response.status());
+    latest = await response.json();
+  }
   try {
+    const recovery = process.env.ERU_RESUME_PATH ? JSON.parse(fs.readFileSync(process.env.ERU_RESUME_PATH,'utf8').replace(/^\uFEFF/,'')) : null;
+    if(recovery) {sid=recovery.id;await context.addInitScript(id=>localStorage.setItem('eru-guided-v3-session',id),sid);}
     await page.goto(base);
+    if(recovery) {
+      latest = await get();assert.equal(latest.mode,'guided');assert.equal(latest.trades.length,3);
+      await page.getByRole('heading',{name:'나의 투자 여정',exact:true}).waitFor();
+      if(latest.status==='paused' && !latest.alerts.some(a=>a.decision===null)) {
+        const [r]=await Promise.all([page.waitForResponse(r=>r.url().endsWith('/resume') && r.request().method()==='POST'),page.getByRole('button',{name:'시장 재개',exact:true}).click()]);
+        assert(r.ok());latest=await r.json();
+      }
+      console.log(JSON.stringify({stage:'recovered-same-game',elapsed:latest.elapsed,trades:latest.trades.length}));
+    } else {
     await page.getByRole('heading',{name:'이해하고, 함께 계획하고, 시작해요',exact:true}).waitFor();
     sid = await page.evaluate(()=>localStorage.getItem('eru-guided-v3-session'));
     assert(sid); fs.writeFileSync(path.join(out,prefix+'-session.json'),JSON.stringify({id:sid}));
@@ -85,6 +106,7 @@ fs.mkdirSync(out,{recursive:true});
     await page.setViewportSize({width:1440,height:1050});
     await page.getByRole('button',{name:'시장 재개',exact:true}).click();
     console.log(JSON.stringify({stage:'core-flow-passed',base,elapsed:latest.elapsed,trades:latest.trades.length,source:latest.chat[0].source,errors}));
+    }
     if(process.env.ERU_E2E_QUICK!=='1') {
       let bucket = -1;
       for(let i=0;i<1050;i++) {
@@ -93,9 +115,7 @@ fs.mkdirSync(out,{recursive:true});
         if(latest.status==='paused') {
           if(latest.alerts.some(a=>a.decision===null)) {
             guards++;
-            await page.getByRole('button',{name:'그대로 유지',exact:true}).click();
-            await page.getByRole('button',{name:'유지 선택 확인',exact:true}).click();
-            await page.getByRole('button',{name:'유지하고 시장 재개',exact:true}).click();
+            await approveHold();
           } else await page.getByRole('button',{name:'시장 재개',exact:true}).click();
         }
         if(Math.floor(latest.elapsed/40)>bucket) {bucket=Math.floor(latest.elapsed/40);console.log(JSON.stringify({stage:'replaying',elapsed:latest.elapsed,guards}));}
@@ -112,7 +132,7 @@ fs.mkdirSync(out,{recursive:true});
       assert.notEqual(await page.evaluate(()=>localStorage.getItem('eru-guided-v3-session')),sid);
     }
     assert.deepEqual(errors,[]);
-    const report = {base,passed:true,elapsed:latest.elapsed,trades:latest.trades.length,interest:latest.interest_account.accrued,guards,source:latest.chat[0].source,transientReads,errors};
+    const report = {base,passed:true,recoveredSession:!!recovery,elapsed:latest.elapsed,trades:latest.trades.length,interest:latest.interest_account.accrued,guards,source:latest.chat[0].source,transientReads,errors};
     fs.writeFileSync(path.join(out,prefix+'-report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));
   } catch(e) {
     await page.screenshot({path:path.join(out,prefix+'-failure.png'),fullPage:true}).catch(()=>{});

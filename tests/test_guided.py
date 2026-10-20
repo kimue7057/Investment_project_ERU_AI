@@ -226,3 +226,15 @@ def test_llm_cannot_publish_untrusted_text_or_invalid_weights(engine, monkeypatc
     r = mentor.discuss(g,"대기 자금 위주로 구성해줘","A",BALANCED)
     assert r["source"] == "ai" and r["weights"] == CASH
     assert "BTC" not in json.dumps(r)
+
+
+def test_inflight_duplicate_chat_does_not_call_model(client, monkeypatch):
+    g = client.post("/api/guided-sessions",json={}).json()
+    rid = str(uuid.uuid4())
+    s = main.load(g["id"])
+    s["chat_request"] = rid
+    s["chat_wall"] = 0
+    main.save(g["id"],s)
+    monkeypatch.setattr(main,"discuss",lambda *a:pytest.fail("중복 요청은 모델을 호출하면 안 됩니다."))
+    r = client.post("/api/sessions/"+g["id"]+"/chat",json={"request_id":rid,"question":"이자는?","asset":"A","draft":CASH})
+    assert r.status_code == 400 and not main.load(g["id"])["chat"]
