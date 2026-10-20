@@ -10,7 +10,7 @@ fs.mkdirSync(out,{recursive:true});
  async function get(){const r=await context.request.get(base+'/api/sessions/'+sid);assert(r.ok());return r.json();}
  async function wait(fn){for(let i=0;i<80;i++){const g=await get();if(fn(g))return g;await page.waitForTimeout(350);}throw Error('체결 대기 초과');}
  async function approve(){const [r]=await Promise.all([page.waitForResponse(r=>r.url().endsWith('/approved-order')&&r.request().method()==='POST'),page.getByRole('button',{name:'이 주문 승인하고 자동 실행',exact:true}).click()]);assert(r.ok());const g=await r.json();assert.equal(g.id,sid);assert(g.pending,'승인 응답에 대기 주문이 있어야 합니다.');}
- async function assets(){await page.getByRole('navigation',{name:'주 메뉴',exact:true}).getByRole('button',{name:'자산 살펴보기',exact:true}).click();}
+ async function assets(){await page.getByRole('navigation',{name:'주 메뉴',exact:true}).getByRole('button',{name:'자산 살펴보기',exact:true}).click();await page.getByRole('heading',{name:'자산 살펴보기',exact:true}).waitFor();}
  const won=n=>Number(n).toLocaleString('ko-KR',{style:'currency',currency:'KRW',maximumFractionDigits:2});
  try{
   await page.goto(base+'/?setup=1');await page.getByRole('button',{name:'균형형',exact:true}).click();sid=await page.evaluate(()=>localStorage.getItem('eru-guided-v3-session'));
@@ -24,7 +24,8 @@ fs.mkdirSync(out,{recursive:true});
   await page.reload();await page.getByRole('button',{name:'AI와 대응 논의',exact:true}).or(page.getByRole('button',{name:'AI와 구성 다시 논의',exact:true})).first().click();await page.getByRole('button',{name:'종목 매수·매도',exact:true}).click();
   await page.getByRole('combobox',{name:'주문 종목',exact:true}).selectOption('B');await page.getByRole('button',{name:'매수',exact:true}).click();await page.getByRole('spinbutton',{name:'매수 금액',exact:true}).fill('1000000');
   await page.getByRole('button',{name:'변경 내용 확인',exact:true}).click();await approve();await wait(g=>g.trades.length===3);
-  await page.getByRole('button',{name:'잠시 멈추기',exact:true}).click();let g=await wait(g=>g.status==='paused');
+  // 복수 조건이 매수 체결 직후 이미 정지시킬 수 있어 기록 검증의 시작 상태를 서버에서 고정한다.
+  const pauseResponse=await context.request.post(base+'/api/sessions/'+sid+'/pause',{data:{}});assert(pauseResponse.ok());let g=await pauseResponse.json();assert.equal(g.status,'paused');await page.reload();await page.locator('.play-state.paused').waitFor();
   await assets();await page.locator('.tabs').getByRole('button',{name:'새벽코인',exact:true}).click();
   const history=page.getByRole('generic',{name:'새벽코인 거래 내역',exact:true});
   await page.getByRole('heading',{name:'새벽코인 거래 내역',exact:true}).waitFor();assert.equal(await page.locator('.fill-card').count(),2);

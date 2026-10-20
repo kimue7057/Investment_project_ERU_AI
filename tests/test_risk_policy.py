@@ -106,3 +106,23 @@ def test_legacy_sessions_keep_original_guard(engine):
     assert "risk_rules" not in s and s["alerts"]
     assert "metric" not in s["alerts"][0]
     assert engine.public(s)["risk_rules"] is None
+
+
+def test_custom_daily_rule_and_public_response_ignore_unfinished_candles(engine):
+    s=invested(engine,[])
+    until=START+timedelta(days=3,hours=9)
+    engine.advance(s,(until-engine.now(s)).total_seconds()/SPAN*300+1e-8)
+    s["risk_rules"]=[rule(metric="daily_drop",asset="A",threshold=1)]
+    before=engine.guard(copy.deepcopy(s))
+    assert before and before["metric"]=="daily_drop"
+    public=engine.public(s)
+    future=[r for r in engine.market.rows["A"] if r["at"]>engine.now(s)]
+    old=[r["close"] for r in future]
+    try:
+        for r in future:
+            r["close"]=D("999999999999")
+        assert engine.guard(copy.deepcopy(s))==before
+        assert engine.public(s)==public
+    finally:
+        for r,value in zip(future,old):
+            r["close"]=value
