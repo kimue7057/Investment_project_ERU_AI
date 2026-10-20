@@ -6,6 +6,8 @@ from decimal import Decimal
 
 from .market import ALIASES, START, END
 from .interest import accrue, public_interest
+from .assets import display_names
+from .trade_history import journal
 
 D = Decimal
 INITIAL = D("100000000")
@@ -341,4 +343,14 @@ class Engine:
             public.update({"mode": "guided", "interest_account": public_interest(s, now),
                            "initial_plan": copy.deepcopy(s["initial_plan"]), "chat": copy.deepcopy(s["chat"]),
                            "trading_profit": float(D(s["realized"])) + sum(h["unrealized"] for h in holdings)})
+            public["trades"], public["asset_performance"] = journal(s["trades"], {a: self.market.quote(a, now) for a in ALIASES})
+            # 기존 세션의 판단·대화도 화면에는 같은 가명을 사용한다. 저장 원문은 보존한다.
+            for alert in public["alerts"]:
+                alert["title"] = display_names(alert["title"])
+            for choice in public["choices"]:
+                if "summary" in choice:
+                    choice["summary"] = display_names(choice["summary"])
+            for message in public["chat"]:
+                message["question"] = display_names(message["question"])
+                message["paragraphs"] = [display_names(p) for p in message["paragraphs"]]
         return public

@@ -25,7 +25,7 @@ fs.mkdirSync(out,{recursive:true});
   async function wait(fn) {for(let i=0;i<80;i++){const g=await get();latest=g;if(fn(g))return g;await page.waitForTimeout(450);}throw new Error('상태 확인 시간 초과');}
   async function fillPlan(cash,a) {
     await page.getByRole('spinbutton',{name:'현금 비중',exact:true}).fill(String(cash));
-    for(const [alias,w] of [['A',a],['B',0],['C',0],['D',0]]) await page.getByRole('spinbutton',{name:'코인 '+alias+' 비중',exact:true}).fill(String(w));
+    for(const [alias,w] of [['A',a],['B',0],['C',0],['D',0]]) await page.getByRole('spinbutton',{name:({A:'새벽코인',B:'물결코인',C:'산들코인',D:'노을코인'})[alias]+' 비중',exact:true}).fill(String(w));
   }
   async function approveHold() {
     await page.getByRole('button',{name:'그대로 유지',exact:true}).click();
@@ -60,7 +60,7 @@ fs.mkdirSync(out,{recursive:true});
     await page.getByRole('button',{name:'이 성향으로 계속',exact:true}).click();
     await page.getByRole('spinbutton',{name:'현금 비중',exact:true}).fill('30');
     await page.getByRole('button',{name:'투자할 종목 고르기',exact:true}).click();
-    await page.getByRole('checkbox',{name:'코인 A 선택',exact:true}).check();
+    await page.getByRole('checkbox',{name:'새벽코인 선택',exact:true}).check();
     await page.getByRole('button',{name:'현금 이자는 어떻게 쌓여?',exact:true}).click();
     const prepared = await wait(g=>g.chat.length===1);
     assert.equal(prepared.status,'ready');assert.equal(prepared.pending,null);assert.equal(prepared.trades.length,0);
@@ -81,7 +81,7 @@ fs.mkdirSync(out,{recursive:true});
     if(process.env.ERU_REQUIRE_AI==='1') {
       await page.waitForTimeout(2100);
       const beforeGuard=await get();
-      await page.getByRole('textbox',{name:'AI에게 질문',exact:true}).fill('지금 가드가 뜬 이유를 현재 보유 비중과 연결해서 설명해줘. 그대로 유지하는 것과 코인 A 보유 수량의 25%를 매도하는 선택을 비교해줘. 아직 구성 제안이나 주문은 하지 마.');
+      await page.getByRole('textbox',{name:'AI에게 질문',exact:true}).fill('지금 가드가 뜬 이유를 현재 보유 비중과 연결해서 설명해줘. 그대로 유지하는 것과 새벽코인 보유 수량의 25%를 매도하는 선택을 비교해줘. 아직 구성 제안이나 주문은 하지 마.');
       const [chatResponse]=await Promise.all([page.waitForResponse(r=>r.url().endsWith('/chat')&&r.request().method()==='POST',{timeout:60000}),page.getByRole('button',{name:'질문하기',exact:true}).click()]);
       assert(chatResponse.ok());latest=await chatResponse.json();const answer=latest.chat.at(-1);
       assert.equal(answer.source,'ai',answer.status);assert.equal(answer.weights,null);

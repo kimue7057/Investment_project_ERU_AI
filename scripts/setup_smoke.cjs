@@ -10,11 +10,12 @@ fs.mkdirSync(out,{recursive:true});
  const errors=[];let sid,initialRequest;
  const context=await browser.newContext({viewport:{width:1440,height:1100},locale:'ko-KR'});
  const page=await context.newPage();page.setDefaultTimeout(30000);page.on('pageerror',e=>errors.push(e.message));
- async function get(){const r=await context.request.get(base+'/api/sessions/'+sid);assert(r.ok());return r.json();}
+ async function get(){const r=await context.request.get(base+'/api/sessions/'+sid);assert(r.ok(),'세션 읽기 '+r.status()+' id='+sid);return r.json();}
  async function shot(stage){await page.screenshot({path:path.join(out,prefix+'-'+stage+'.png'),fullPage:true});}
  async function fits(){assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);}
  try{
   await page.goto(base);await page.getByRole('heading',{name:'어떤 투자 방식이 나에게 맞을까요?',exact:true}).waitFor();
+  await page.waitForFunction(()=>!!localStorage.getItem('eru-guided-v3-session'));
   sid=await page.evaluate(()=>localStorage.getItem('eru-guided-v3-session'));
   const before=await get();assert.equal(before.status,'ready');assert.equal(before.elapsed,0);
   const next=page.getByRole('button',{name:'이 성향으로 계속',exact:true});
@@ -38,11 +39,11 @@ fs.mkdirSync(out,{recursive:true});
   const confirm=page.getByRole('button',{name:'이 구성 확인하기',exact:true});
   assert.equal(await confirm.isDisabled(),true);
   assert.equal(await page.getByRole('checkbox',{checked:true}).count(),0);
-  await page.getByRole('checkbox',{name:'코인 A 선택',exact:true}).check();
-  await page.getByRole('checkbox',{name:'코인 B 선택',exact:true}).check();
-  await page.getByRole('spinbutton',{name:'코인 A 투자 내 비중',exact:true}).fill('60');
+  await page.getByRole('checkbox',{name:'새벽코인 선택',exact:true}).check();
+  await page.getByRole('checkbox',{name:'물결코인 선택',exact:true}).check();
+  await page.getByRole('spinbutton',{name:'새벽코인 투자 내 비중',exact:true}).fill('60');
   assert.equal(await confirm.isDisabled(),true);
-  await page.getByRole('spinbutton',{name:'코인 B 투자 내 비중',exact:true}).fill('40');
+  await page.getByRole('spinbutton',{name:'물결코인 투자 내 비중',exact:true}).fill('40');
   assert.equal(await confirm.isEnabled(),true);
   assert((await page.locator('.setup-assets').innerText()).includes('전체 자산 42%'));
   assert((await page.locator('.setup-assets').innerText()).includes('전체 자산 28%'));

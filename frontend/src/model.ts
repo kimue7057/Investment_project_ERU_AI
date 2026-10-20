@@ -1,5 +1,8 @@
 export const aliases = ['A', 'B', 'C', 'D'] as const;
 export type Alias = typeof aliases[number];
+export const assetNames: Record<Alias,string> = {A:'새벽코인',B:'물결코인',C:'산들코인',D:'노을코인'};
+export const assetName = (a:string) => a === 'cash' ? '현금' : assetNames[a as Alias] ?? '자산';
+export const assetShort = (a:string) => a === 'cash' ? '₩' : assetName(a).replace('코인','');
 export type Allocation = Record<Alias | 'cash', number>;
 export const initialWeights: Allocation = { cash: 20, A: 30, B: 20, C: 15, D: 15 };
 export const money = (n: number | string) => '₩' + Math.round(Number(n)).toLocaleString('ko-KR');
@@ -11,6 +14,8 @@ export type Research = {event_id: string; asset_alias: string; published_on: str
 export type Asset = {alias: string; name: string; category: string; available?: boolean; overview: string; technology?: string; supply?: string; risks?: string[]; document_label?: string};
 export type Alert = {id: string; at: string; kind: string; asset: Alias; side?: 'buy'|'sell'; title: string; summary: string; percent?: number; decision: string | null};
 export type Trade = {at: string; asset: Alias; side: string; quantity: string; price: string; gross: string; fee: string; reason: string};
+export type FilledTrade = Trade & {id:string; name:string; cash_flow:string; cost_basis:string; realized_pnl:string|null; realized_return_pct:string|null; cumulative_realized:string; balance_quantity:string};
+export type AssetPerformance = {asset:Alias; name:string; quantity:string; remaining_cost:string; average_cost:string; value:string; realized_pnl:string; unrealized_pnl:string; unrealized_return_pct:string|null; total_pnl:string; buy_total:string; sell_total:string; fees:string};
 export type Game = {mode?: "paper"; fee_rate?: number; id: string; status: 'ready'|'running'|'paused'|'finished'; elapsed: number; now: string; nav: number; cash: number; initial: number; return_pct: number; realized: number; unrealized: number; fees: number; mdd_pct: number; targets: Record<string, string>; guard: string;
   holdings: {average_cost: number; change_pct: number; asset: Alias; quantity: string; price: number; value: number; weight: number; unrealized: number}[];
   chart_asset: string; chart: {time: string; open: number; high: number; low: number; close: number; volume: number}[];
@@ -20,7 +25,7 @@ export type Game = {mode?: "paper"; fee_rate?: number; id: string; status: 'read
 
 export type Discussion = {id: string; at: string; question: string; paragraphs: string[]; source: 'ai'|'rules'|'boundary'; status: string; weights: Allocation | null};
 export type SetupContext = {profile: 'cautious'|'balanced'|'active'|null; step: number; cash: number; selected: Alias[]; shares: Record<Alias,number>};
-export type GuidedGame = Omit<Game, 'mode'> & {mode: 'guided'; initial_plan: Record<string,string> | null;
+export type GuidedGame = Omit<Game, 'mode'|'trades'> & {mode: 'guided'; initial_plan: Record<string,string> | null; trades:FilledTrade[]; asset_performance:AssetPerformance[];
   interest_account: {accrued: number; annual_rate: number; principal: number; reserved: number; available: number; settled: boolean; policy: string; terms: string};
   trading_profit: number; chat: Discussion[];
   choices: {at: string; action: string; summary?: string; alert_id?: string}[]};

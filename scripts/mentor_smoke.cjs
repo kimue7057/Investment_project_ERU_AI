@@ -30,15 +30,15 @@ fs.mkdirSync(out,{recursive:true});
   fs.writeFileSync(path.join(out,prefix+'-session.json'),JSON.stringify({id:sid}));
   await page.getByRole('button',{name:'균형형',exact:true}).click();await page.getByRole('button',{name:'이 성향으로 계속',exact:true}).click();
   await page.getByRole('button',{name:'투자할 종목 고르기',exact:true}).click();
-  await page.getByRole('checkbox',{name:'코인 A 선택',exact:true}).check();await page.getByRole('checkbox',{name:'코인 B 선택',exact:true}).check();
-  await page.getByRole('spinbutton',{name:'코인 A 투자 내 비중',exact:true}).fill('60');await page.getByRole('spinbutton',{name:'코인 B 투자 내 비중',exact:true}).fill('40');
+  await page.getByRole('checkbox',{name:'새벽코인 선택',exact:true}).check();await page.getByRole('checkbox',{name:'물결코인 선택',exact:true}).check();
+  await page.getByRole('spinbutton',{name:'새벽코인 투자 내 비중',exact:true}).fill('60');await page.getByRole('spinbutton',{name:'물결코인 투자 내 비중',exact:true}).fill('40');
   const explain=await ask('내가 지금 고른 성향과 종목, 현금과 투자 비중을 정리하고 현금을 남기는 이유를 설명해줘. 구성 변경 제안은 아직 하지 마.');
-  if(requireAI){assert.equal(explain.weights,null);assert(/30/.test(explain.paragraphs.join(' ')));assert(/A/.test(explain.paragraphs.join(' '))&&/B/.test(explain.paragraphs.join(' ')));}
+  if(requireAI){assert.equal(explain.weights,null);assert(/30/.test(explain.paragraphs.join(' ')));assert(/새벽코인/.test(explain.paragraphs.join(' '))&&/물결코인/.test(explain.paragraphs.join(' ')));}
   await page.waitForTimeout(2100);
-  const proposal=await ask('나는 손실이 걱정돼. 전체 자산 기준으로 현금 50%, 코인 A 30%, 코인 B 20%, C와 D는 0%로 제안해줘.');
+  const proposal=await ask('나는 손실이 걱정돼. 전체 자산 기준으로 현금 50%, 새벽코인 30%, 물결코인 20%, 산들코인과 노을코인은 0%로 제안해줘.');
   if(requireAI)assert.deepEqual(proposal.weights,{cash:50,A:30,B:20,C:0,D:0});
   await page.waitForTimeout(2100);
-  const follow=await ask('방금 제안에서 현금 비중만 60%로 더 늘리고, 남은 투자금은 방금의 A 대 B 비율을 유지해줘. C와 D는 계속 빼줘.');
+  const follow=await ask('방금 제안에서 현금 비중만 60%로 더 늘리고, 남은 투자금은 방금의 새벽코인 대 물결코인 비율을 유지해줘. 산들코인과 노을코인은 계속 빼줘.');
   if(requireAI)assert.deepEqual(follow.weights,{cash:60,A:24,B:16,C:0,D:0});
   assert(follow.weights,'검증된 제안이 있어야 합니다.');
   await page.getByRole('button',{name:'이 구성을 초안에 담기',exact:true}).last().click();
