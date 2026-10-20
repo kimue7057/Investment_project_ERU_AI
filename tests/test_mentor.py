@@ -82,6 +82,15 @@ def test_conversation_has_no_implicit_conditions_or_preselected_plan(game):
     assert ctx["setup"]["mode"]=="conversation"
 
 
+def test_offline_conversation_does_not_invent_plan_or_send_user_back_to_forms(game,monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY")
+    setup={**SETUP,"mode":"conversation","allocation":None,"risk_rules":None}
+    for question in ("균형형 구성 추천해줘","전체 손실 알림도 같이 정하자"):
+        r=mentor.discuss(game,question,"A",CASH,setup)
+        assert r["source"]=="rules" and r["weights"] is None and "risk_rules" not in r
+        assert "입력" not in " ".join(r["paragraphs"]) and "오른쪽" not in " ".join(r["paragraphs"])
+
+
 def test_conversation_passes_exact_plan_and_whole_plan_reply_remains_unapproved(game,monkeypatch):
     rules=[{"metric":"portfolio_loss","asset":"portfolio","threshold":10,"enabled":True}]
     setup={**SETUP,"mode":"conversation","allocation":PLAN,"risk_rules":None}

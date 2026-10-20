@@ -260,6 +260,21 @@ def test_initial_risk_settings_are_validated_and_saved_only_on_start(client):
     assert client.get(url).json()["risk_rules"]==rules
 
 
+def test_conversation_api_keeps_unset_plan_and_conditions_unconfirmed(client,monkeypatch):
+    g=client.post("/api/guided-sessions",json={}).json()
+    setup={"mode":"conversation","profile":None,"step":0,"cash":30,"selected":[],
+           "shares":dict.fromkeys("ABCD",0),"allocation":None,"risk_rules":None}
+    def reply(snapshot,question,asset,draft,received):
+        assert received==setup and snapshot["status"]=="ready"
+        return {"question":question,"paragraphs":["투자에서 어떤 점이 가장 걱정되시나요?"],"weights":None,"source":"ai","status":"검증용"}
+    monkeypatch.setattr(main,"discuss",reply)
+    r=client.post("/api/sessions/"+g["id"]+"/chat",json={"request_id":str(uuid.uuid4()),"question":"함께 계획을 만들어줘","draft":CASH,"setup":setup})
+    assert r.status_code==200
+    body=r.json()
+    assert body["status"]=="ready" and body["initial_plan"] is None and body["risk_rules"] is None
+    assert body["pending"] is None and not body["trades"] and body["elapsed"]==0
+
+
 @pytest.mark.parametrize("question,cash", [("안정형으로 구성해줘",60),("균형형으로 구성해줘",30),("공격형으로 구성해줘",10)])
 def test_setup_profile_questions_match_cash_guidance(client, question, cash):
     g=client.post("/api/guided-sessions",json={}).json()
