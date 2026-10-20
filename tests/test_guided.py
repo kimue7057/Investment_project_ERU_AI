@@ -275,6 +275,24 @@ def test_conversation_api_keeps_unset_plan_and_conditions_unconfirmed(client,mon
     assert body["pending"] is None and not body["trades"] and body["elapsed"]==0
 
 
+def test_direct_custom_profile_is_accepted_in_final_rules_chat(client,monkeypatch):
+    g=client.post('/api/guided-sessions',json={}).json()
+    allocation={'cash':30,'A':42,'B':28,'C':0,'D':0}
+    setup={'mode':'conversation','phase':'rules','profile':'custom','cash':30,'step':3,
+           'selected':['A','B'],'shares':{'A':60,'B':40,'C':0,'D':0},'allocation':allocation,'risk_rules':None,'proposal_choices':{}}
+    def reply(snapshot,question,asset,draft,received):
+        assert received==setup and draft==allocation
+        return {'question':question,'paragraphs':['보유한 코인의 원가 대비 손실을 기준으로 점검할 수 있어요.'],'weights':None,
+                'risk_rules':[{'metric':'asset_loss','asset':'held','threshold':8,'enabled':True}],'source':'ai','status':'검증용'}
+    monkeypatch.setattr(main,'discuss',reply)
+    r=client.post('/api/sessions/'+g['id']+'/chat',json={'request_id':str(uuid.uuid4()),'question':'손실 관리 기준을 제안해줘','draft':allocation,'setup':setup})
+    assert r.status_code==200
+    body=r.json()
+    assert body['chat'][-1]['setup_basis']['profile']=='custom'
+    assert body['chat'][-1]['risk_rules'][0]['threshold']==8
+    assert body['initial_plan'] is None and body['risk_rules'] is None and body['pending'] is None and not body['trades']
+
+
 @pytest.mark.parametrize("question,cash", [("안정형으로 구성해줘",60),("균형형으로 구성해줘",30),("공격형으로 구성해줘",10)])
 def test_setup_profile_questions_match_cash_guidance(client, question, cash):
     g=client.post("/api/guided-sessions",json={}).json()

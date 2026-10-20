@@ -113,7 +113,7 @@ class SetupContext(Strict):
     phase: Literal["portfolio", "assets", "rules"] | None = None
     proposal_choices: dict[str, Literal["accepted", "declined", "superseded"]] = Field(default_factory=dict, max_length=40)
     allocation: dict[str, float] | None = None
-    profile: Literal["cautious", "balanced", "active"] | None = None
+    profile: Literal["cautious", "balanced", "active", "custom"] | None = None
     step: int = Field(ge=0, le=4)
     cash: float = Field(ge=0, le=100)
     selected: list[Literal["A", "B", "C", "D"]] = Field(max_length=4)

@@ -144,6 +144,19 @@ def test_asset_explanation_then_allocation_use_public_names_and_same_cash(game,m
     with pytest.raises(ValueError):mentor.validate_answer(answer(allocation={**PLAN,'cash':40,'A':32},suggest_allocation=True),context)
 
 
+def test_custom_direct_plan_only_gets_rule_proposal_without_reallocating(game,monkeypatch):
+    setup={**SETUP,"mode":"conversation","phase":"rules","profile":"custom","allocation":PLAN,"risk_rules":None}
+    rules=[{"metric":"asset_loss","asset":"held","threshold":8,"enabled":True}]
+    replies=iter([answer(paragraphs=["매수원가 대비 손실은 보유 종목마다 손실을 점검하는 기준이에요. 8% 이상 손실이면 다시 판단하는 조건을 제안해요."],fact_ids=['risk_policy'],risk_rules=rules),{"supported":True}])
+    def post(*args,**kw):
+        ctx=json.loads(kw['json']['messages'][1]['content'])['context']
+        assert ctx['setup']['profile']=='custom' and ctx['setup']['allocation']==PLAN
+        return response(next(replies))
+    monkeypatch.setattr(mentor.httpx,'post',post)
+    r=mentor.discuss(game,'손실 관리 조건을 제안해줘','A',PLAN,setup)
+    assert r['source']=='ai' and r['weights'] is None and r['risk_rules']==rules
+
+
 @pytest.mark.parametrize("bad", [
     {"paragraphs": ["비트코인으로 매수해요."]},
     {"paragraphs": ["B\u200bTC가 올라요."]},
