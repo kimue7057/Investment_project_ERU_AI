@@ -25,14 +25,14 @@ def facts_for(game, asset):
         "asset": f"코인 {asset}: {a['overview']}",
         "structure": a["technology"] + " " + a["supply"],
         "risk": "주요 위험: " + ", ".join(a["risks"]) + ". 코인은 가격이 크게 하락할 수 있습니다.",
-        "cash": f"대기 자금에는 현재 연 {account['annual_rate']:g}%의 교육용 이자율을 적용합니다. 과거 한국은행 기준금리 연동 모델이며 실제 예금 상품이 아닙니다. 세전 단리로 게임에서 경과한 기간에 적립하고 종료 시 지급합니다.",
-        "liquidity": "승인한 매수에 대기 자금을 사용하고, 수수료를 뺀 매도 대금은 다시 대기 자금으로 운용합니다. 주문 예약금에는 이자를 주지 않습니다.",
-        "bond": "채권은 가격과 신용·만기 위험이 있는 별도 자산입니다. 정기예금·적금도 만기·납입·중도해지 조건이 다릅니다. 이번 게임은 코인 A~D와 유동성 대기 자금을 운용합니다.",
-        "allocation": "대기 자금을 늘리면 코인 가격 변동에 노출되는 금액이 줄지만, 상승 시 참여 금액도 줄어듭니다. 여러 코인을 보유해도 함께 하락할 수 있어 수익을 보장하지 않습니다.",
+        "cash": f"현금에는 현재 연 {account['annual_rate']:g}%의 교육용 이자율을 적용합니다. 과거 한국은행 기준금리 연동 모델이며 실제 예금 상품이 아닙니다. 세전 단리로 게임에서 경과한 기간에 적립하고 종료 시 지급합니다.",
+        "liquidity": "승인한 매수에 현금을 사용하고, 수수료를 뺀 매도 대금은 다시 현금으로 운용합니다. 주문 예약금에는 이자를 주지 않습니다.",
+        "bond": "채권은 가격과 신용·만기 위험이 있는 별도 자산입니다. 정기예금·적금도 만기·납입·중도해지 조건이 다릅니다. 이번 게임은 코인 A~D와 유동성 현금을 운용합니다.",
+        "allocation": "현금을 늘리면 코인 가격 변동에 노출되는 금액이 줄지만, 상승 시 참여 금액도 줄어듭니다. 여러 코인을 보유해도 함께 하락할 수 있어 수익을 보장하지 않습니다.",
         "fee": "매수 예산에는 수수료 0.05%가 포함됩니다. 매도 시에도 수수료 0.05%를 차감하므로 잦은 매매는 비용을 늘립니다.",
         "execute": "대화와 계획 수정만으로 주문하지 않습니다. 승인한 주문은 시장 재개 후 다음 일봉 시가에 체결됩니다. 체결 가격에 따라 실제 수량과 잔고가 달라집니다.",
-        "holding": f"현재 코인 {asset}의 비중은 {held['weight']:.1f}%, 평가액은 {held['value']:,.0f}원입니다. 주문 가능 대기 자금은 {account['available']:,.0f}원입니다.",
-        "hold": "유지를 선택하면 매매 수수료가 추가되지 않지만 현재의 가격 변동 위험은 계속 부담합니다. 위험을 줄이고 싶다면 일부 매도나 대기 자금 확대를 검토할 수 있습니다.",
+        "holding": f"현재 코인 {asset}의 비중은 {held['weight']:.1f}%, 평가액은 {held['value']:,.0f}원입니다. 주문 가능 현금은 {account['available']:,.0f}원입니다.",
+        "hold": "유지를 선택하면 매매 수수료가 추가되지 않지만 현재의 가격 변동 위험은 계속 부담합니다. 위험을 줄이고 싶다면 일부 매도나 현금 확대를 검토할 수 있습니다.",
     }
     alert = next((a for a in reversed(game["alerts"]) if a["decision"] is None), None)
     if alert:
@@ -47,7 +47,7 @@ def discuss(game, question, asset, draft):
     fallback = ["guard", "holding", "hold", "execute"] if "guard" in facts else ["asset", "risk", "allocation", "execute"]
     if any(w in question for w in ("이자", "현금", "예금", "적금", "채권")):
         fallback = ["cash", "liquidity", "bond"]
-    if any(w in question for w in ("비중", "구성", "보수", "분산", "공격")):
+    if any(w in question for w in ("비중", "구성", "보수", "안정", "균형", "성향", "분산", "공격")):
         fallback = ["allocation", "cash", "risk", "fee"]
     profile = "cautious" if any(w in question for w in ("보수", "안정", "안전")) else "active" if "공격" in question else "balanced"
     selected, allocation = fallback, None
@@ -67,7 +67,7 @@ def discuss(game, question, asset, draft):
                 headers={"Authorization": "Bearer " + token}, timeout=22,
                 json={"model": MODEL, "max_completion_tokens": 1200,
                       "response_format": {"type": "json_schema", "json_schema": {"name": "investment_discussion", "strict": True, "schema": schema}},
-                      "messages": [{"role": "system", "content": "투자 교육 도우미. 사용자의 최신 질문과 대화 맥락에 맞는 facts ID를 2~5개 골라 JSON만 반환한다. 미래를 예측하거나 실제 자산을 추측하지 않는다. 구성·추천·비중·성향 질문이면 suggest_allocation=true로 합계 정확히 100인 구성 초안을 제안한다. 대기 자금은 손실 노출 조절용이며 코인 분산은 손실을 보장하지 않는다. 단순 자산 설명·가드 질문은 false. 사용자의 비중 요청을 존중하되 직접 주문하지 않는다."},
+                      "messages": [{"role": "system", "content": "투자 교육 도우미. 사용자의 최신 질문과 대화 맥락에 맞는 facts ID를 2~5개 골라 JSON만 반환한다. 미래를 예측하거나 실제 자산을 추측하지 않는다. 구성·추천·비중·성향 질문이면 suggest_allocation=true로 합계 정확히 100인 구성 초안을 제안한다. 현금은 손실 노출 조절용이며 코인 분산은 손실을 보장하지 않는다. 단순 자산 설명·가드 질문은 false. 사용자의 비중 요청을 존중하되 직접 주문하지 않는다."},
                                    {"role": "user", "content": json.dumps({"facts": facts, "current_draft": draft, "recent_discussion": game.get("chat", [])[-4:], "question": question}, ensure_ascii=False)}]})
             if response.status_code == 200:
                 result = json.loads(response.json()["choices"][0]["message"]["content"])
@@ -85,7 +85,7 @@ def discuss(game, question, asset, draft):
                           else "규칙 기반 안내 · AI 연결을 사용할 수 없음")
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
             status = "규칙 기반 안내 · AI 응답 검증 또는 연결 실패"
-    if source == "rules" and any(w in question for w in ("추천", "구성", "비중", "보수", "공격")):
+    if source == "rules" and any(w in question for w in ("추천", "구성", "비중", "보수", "안정", "균형", "성향", "공격")):
         allocation = PROFILES[profile].copy()
     return {"question": public_question, "paragraphs": [facts[k] for k in selected], "weights": allocation,
             "source": source, "status": status}

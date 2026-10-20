@@ -24,7 +24,7 @@ fs.mkdirSync(out,{recursive:true});
   }
   async function wait(fn) {for(let i=0;i<80;i++){const g=await get();latest=g;if(fn(g))return g;await page.waitForTimeout(450);}throw new Error('상태 확인 시간 초과');}
   async function fillPlan(cash,a) {
-    await page.getByRole('spinbutton',{name:'대기 자금 비중',exact:true}).fill(String(cash));
+    await page.getByRole('spinbutton',{name:'현금 비중',exact:true}).fill(String(cash));
     for(const [alias,w] of [['A',a],['B',0],['C',0],['D',0]]) await page.getByRole('spinbutton',{name:'코인 '+alias+' 비중',exact:true}).fill(String(w));
   }
   async function approveHold() {
@@ -50,19 +50,23 @@ fs.mkdirSync(out,{recursive:true});
       }
       console.log(JSON.stringify({stage:'recovered-same-game',elapsed:latest.elapsed,trades:latest.trades.length}));
     } else {
-    await page.getByRole('heading',{name:'이해하고, 함께 계획하고, 시작해요',exact:true}).waitFor();
+    await page.getByRole('heading',{name:'어떤 투자 방식이 나에게 맞을까요?',exact:true}).waitFor();
     sid = await page.evaluate(()=>localStorage.getItem('eru-guided-v3-session'));
     assert(sid); fs.writeFileSync(path.join(out,prefix+'-session.json'),JSON.stringify({id:sid}));
     latest = await get(); assert.equal(latest.mode,'guided'); assert.equal(latest.cash,100000000); assert.equal(latest.interest_account.accrued,0);
     assert(!('research' in latest));
     await page.screenshot({path:path.join(out,prefix+'-01-learn.png'),fullPage:true});
-    await page.getByRole('button',{name:'함께 구성 만들기',exact:true}).click();
-    await fillPlan(30,70);
-    await page.getByRole('button',{name:'대기 자금의 이자는?',exact:true}).click();
+    await page.getByRole('button',{name:'균형형',exact:true}).click();
+    await page.getByRole('button',{name:'이 성향으로 계속',exact:true}).click();
+    await page.getByRole('spinbutton',{name:'현금 비중',exact:true}).fill('30');
+    await page.getByRole('button',{name:'투자할 종목 고르기',exact:true}).click();
+    await page.getByRole('checkbox',{name:'코인 A 선택',exact:true}).check();
+    await page.getByText('궁금한 점을 더 물어볼까요?',{exact:true}).click();
+    await page.getByRole('button',{name:'현금 이자는 어떻게 쌓여?',exact:true}).click();
     const prepared = await wait(g=>g.chat.length===1);
     assert.equal(prepared.status,'ready');assert.equal(prepared.pending,null);assert.equal(prepared.trades.length,0);
     assert(prepared.chat.length===1 && prepared.chat[0].paragraphs.some(p=>p.includes('기준금리')));
-    await page.getByRole('button',{name:'구성 확인하기',exact:true}).click();
+    await page.getByRole('button',{name:'이 구성 확인하기',exact:true}).click();
     await page.getByRole('checkbox').check();
     await page.getByRole('button',{name:'이 구성으로 투자 시작',exact:true}).click();
     await page.getByRole('dialog').waitFor();
@@ -88,7 +92,7 @@ fs.mkdirSync(out,{recursive:true});
     await page.getByRole('button',{name:'변경 내용 확인',exact:true}).click();
     await page.getByRole('button',{name:'이 주문 승인하고 자동 실행',exact:true}).click();
     latest = await wait(g=>g.trades.length===3 && g.holdings.every(h=>Number(h.quantity)===0));
-    assert(latest.initial_plan.A==='70.0');
+    assert.equal(Number(latest.initial_plan.A),70);
     await page.reload();
     await page.getByRole('heading',{name:'나의 투자 여정',exact:true}).waitFor();
     assert.equal(await page.evaluate(()=>localStorage.getItem('eru-guided-v3-session')),sid);
@@ -128,7 +132,7 @@ fs.mkdirSync(out,{recursive:true});
       assert((await page.locator('main').innerText()).includes('BTC'));
       await page.screenshot({path:path.join(out,prefix+'-06-result.png'),fullPage:true});
       await page.getByRole('button',{name:'새 계획으로 다시 투자',exact:true}).click();
-      await page.getByRole('heading',{name:'이해하고, 함께 계획하고, 시작해요',exact:true}).waitFor();
+      await page.getByRole('heading',{name:'어떤 투자 방식이 나에게 맞을까요?',exact:true}).waitFor();
       assert.notEqual(await page.evaluate(()=>localStorage.getItem('eru-guided-v3-session')),sid);
     }
     assert.deepEqual(errors,[]);

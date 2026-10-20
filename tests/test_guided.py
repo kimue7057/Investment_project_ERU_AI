@@ -238,3 +238,15 @@ def test_inflight_duplicate_chat_does_not_call_model(client, monkeypatch):
     monkeypatch.setattr(main,"discuss",lambda *a:pytest.fail("중복 요청은 모델을 호출하면 안 됩니다."))
     r = client.post("/api/sessions/"+g["id"]+"/chat",json={"request_id":rid,"question":"이자는?","asset":"A","draft":CASH})
     assert r.status_code == 400 and not main.load(g["id"])["chat"]
+
+
+@pytest.mark.parametrize("question,cash", [("안정형으로 구성해줘",60),("균형형으로 구성해줘",30),("공격형으로 구성해줘",10)])
+def test_setup_profile_questions_match_cash_guidance(client, question, cash):
+    g=client.post("/api/guided-sessions",json={}).json()
+    r=client.post("/api/sessions/"+g["id"]+"/chat",json={"request_id":str(uuid.uuid4()),"question":question,"asset":"A","draft":CASH})
+    assert r.status_code==200
+    result=r.json()
+    assert result["status"]=="ready" and result["pending"] is None and result["trades"]==[]
+    reply=result["chat"][-1]
+    assert reply["source"]=="rules" and reply["weights"]["cash"]==cash
+    assert "대기 자금" not in json.dumps(reply,ensure_ascii=False)
