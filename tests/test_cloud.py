@@ -68,6 +68,25 @@ def test_paper_cloud_recovery_and_no_automatic_alerts(cloud):
     assert len(filled["trades"]) == 1 and filled["cash"] == 99000000
 
 
+def test_read_only_checkpoint_retries_without_replaying_orders(cloud, monkeypatch):
+    c, store, wall = cloud
+    s = c.post("/api/paper-sessions", json={}).json()
+    url = f"/api/sessions/{s['id']}"
+    c.post(url + "/play", json={})
+    original_write = store.write
+    calls = []
+    def write(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise httpx.HTTPStatusError('temporary provider error', request=httpx.Request('PUT', 'https://example.invalid'), response=httpx.Response(400, json={'error': {'code': 'bad_request'}}))
+        return original_write(*args, **kwargs)
+    monkeypatch.setattr(store, 'write', write)
+    wall[0] += 6
+    r = c.get(url)
+    assert r.status_code == 200 and r.json()["status"] == "running"
+    assert r.json()["elapsed"] == 6 and r.json()["trades"] == [] and len(calls) == 2
+
+
 def test_cold_instances_share_clock_and_state(cloud):
     c, store, wall = cloud
     url = start_cloud(c)

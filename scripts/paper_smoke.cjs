@@ -14,13 +14,21 @@ fs.mkdirSync(out, {recursive: true});
   page.setDefaultTimeout(30000);
   const prefix = base.startsWith('https:') ? 'paper-cloud' : 'paper-local';
   let sid;
-  const get = async () => { const r = await context.request.get(`${base}/api/sessions/${sid}`); assert(r.ok(), await r.text()); return r.json(); };
+  let transientReads = 0;
+  const get = async () => { for(let i=0;i<3;i++) { const r = await context.request.get(`${base}/api/sessions/${sid}`); if(r.ok())return r.json(); if(i<2 && [409,503].includes(r.status())) {transientReads++;await page.waitForTimeout(500);continue;} assert(r.ok(),await r.text()); } };
   const waitFor = async fn => { for (let i = 0; i < 50; i++) { const g = await get(); if (fn(g)) return g; await page.waitForTimeout(400); } throw new Error('체결 상태 확인 시간 초과'); };
   try {
+    const recovery = process.env.ERU_RESUME_PATH ? JSON.parse(fs.readFileSync(process.env.ERU_RESUME_PATH,'utf8').replace(/^\uFEFF/,'')) : null;
+    if(recovery) {sid=recovery.id;await context.addInitScript(id=>localStorage.setItem('eru-paper-session',id),sid);}
     await page.goto(base);
     await page.getByRole('heading', {name: '어떤 종목에 투자해 볼까요?'}).waitFor();
     sid = await page.evaluate(() => localStorage.getItem('eru-paper-session'));
     let g = await get();
+    if(recovery) {
+      assert.equal(g.mode,'paper');assert.equal(g.trades.length,2);
+      if(g.status==='paused') {await page.getByRole('button',{name:'시장 재개',exact:true}).click();g=await waitFor(v=>v.status==='running');}
+      console.log(JSON.stringify({stage:'recovered-same-session',elapsed:g.elapsed,trades:g.trades.length}));
+    } else {
     assert.equal(g.mode, 'paper'); assert.equal(g.cash, 100000000); assert.equal(g.pending, null);
     assert.deepEqual(g.trades, []);
     assert(!/준비 중|주식 E|주식 F|부동산 G|제안 수용|자동 일시정지|새로운.*자료/.test(await page.locator('main').innerText()));
@@ -76,6 +84,7 @@ fs.mkdirSync(out, {recursive: true});
     assert.equal(await page.evaluate(() => localStorage.getItem('eru-paper-session')), sid);
     assert.equal((await get()).trades.length, 2);
     console.log(JSON.stringify({stage: 'orders-and-mobile-passed', base, errors}));
+    }
     if (process.env.ERU_E2E_QUICK === '1') { assert.deepEqual(errors, []); return; }
     const started = Date.now(); let polls = 0;
     while (true) {
@@ -99,7 +108,7 @@ fs.mkdirSync(out, {recursive: true});
     const newGame = await context.request.get(`${base}/api/sessions/${next}`).then(r => r.json());
     assert.equal(newGame.cash, 100000000); assert.equal(newGame.elapsed, 0); assert.deepEqual(newGame.trades, []);
     assert.deepEqual(errors, []);
-    fs.writeFileSync(path.join(out, `${prefix}-report.json`), JSON.stringify({base, passed: true, elapsed: g.elapsed, trades: g.trades.length, finalNav: g.nav, errors}, null, 2));
+    fs.writeFileSync(path.join(out, `${prefix}-report.json`), JSON.stringify({base, passed: true, recoveredSession:!!recovery, transientReads, elapsed: g.elapsed, trades: g.trades.length, finalNav: g.nav, errors}, null, 2));
     console.log(JSON.stringify({stage: 'complete', elapsed: g.elapsed, trades: g.trades.length, errors}));
   } catch (e) { await page.screenshot({path: path.join(out, `${prefix}-failure.png`), fullPage: true}).catch(() => {}); throw e; }
   finally { await browser.close(); }

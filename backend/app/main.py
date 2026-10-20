@@ -135,7 +135,7 @@ def update(sid, action, alias="A", read_only=False):
 def update_cloud(sid, action, alias="A", read_only=False):
     if not data_ready or cloud_store is None:
         raise HTTPException(503, "배포 데이터 또는 비공개 저장소를 준비 중입니다.")
-    for _ in range(4):
+    for attempt in range(4):
         try:
             result = cloud_store.read(sid)
         except ValueError:
@@ -171,6 +171,13 @@ def update_cloud(sid, action, alias="A", read_only=False):
             continue
         except Exception as exc:
             storage_failure("write", exc)
+            # A failed time-only checkpoint can be reconstructed from the last
+            # durable anchor. Retry reads, never replay a mutating user action.
+            checkpoint_only = (read_only and state["status"] == original["status"] == "running"
+                               and state["pending"] == original["pending"]
+                               and state["trades"] == original["trades"])
+            if checkpoint_only and attempt < 2:
+                continue
             raise HTTPException(503, "게임 상태를 저장하지 못했습니다. 잠시 후 다시 시도하세요.") from None
         if error:
             raise HTTPException(400, error)

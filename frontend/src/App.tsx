@@ -64,8 +64,8 @@ export default function App() {
     const poll = async () => {
       if (inFlight.current || mutating.current || document.hidden) return;
       inFlight.current = true;
-      try { const g = await api(`/sessions/${id}?asset=${selected}`); if (!stopped && current.current?.id === id) receive(g); }
-      catch (e) { if (!stopped) setError((e as Error).message); }
+      try { const g = await api(`/sessions/${id}?asset=${selected}`); if (!stopped && current.current?.id === id) { receive(g); setError(old => old.startsWith('연결 확인 중:') ? '' : old); } }
+      catch (e) { if (!stopped) setError('연결 확인 중: ' + (e as Error).message); }
       finally { inFlight.current = false; }
     };
     void poll(); const t = setInterval(poll, 1000); return () => { stopped = true; clearInterval(t); };
