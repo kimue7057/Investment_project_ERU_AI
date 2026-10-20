@@ -19,6 +19,7 @@ export type Game = {mode?: "paper"; fee_rate?: number; id: string; status: 'read
   identities?: Record<string, string>; baseline_return_pct?: number};
 
 export type Discussion = {id: string; at: string; question: string; paragraphs: string[]; source: 'ai'|'rules'|'boundary'; status: string; weights: Allocation | null};
+export type SetupContext = {profile: 'cautious'|'balanced'|'active'|null; step: number; cash: number; selected: Alias[]; shares: Record<Alias,number>};
 export type GuidedGame = Omit<Game, 'mode'> & {mode: 'guided'; initial_plan: Record<string,string> | null;
   interest_account: {accrued: number; annual_rate: number; principal: number; reserved: number; available: number; settled: boolean; policy: string; terms: string};
   trading_profit: number; chat: Discussion[];

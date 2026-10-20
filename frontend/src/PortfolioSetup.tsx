@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { aliases, money, validWeights, type Alias, type Allocation, type Asset } from './model';
-import { buildAllocation, emptyShares, equalShares, profiles, sharesFromAllocation, type Profile, type Shares } from './setup';
+import { aliases, money, validWeights, type Alias, type Allocation, type Asset, type SetupContext } from './model';
+import { buildAllocation, emptyShares, equalShares, profiles, sharesFromAllocation } from './setup';
 
-type Setup = {profile: Profile|null; step: number; cash: number; shares: Shares; selected: Alias[]};
+type Setup = SetupContext;
 const labels = ['성향 정하기','현금·투자 배분','투자 종목 선택','최종 확인'];
 function restore(key:string):Setup {
   try {
@@ -18,7 +18,7 @@ function restore(key:string):Setup {
 
 export default function PortfolioSetup({sessionId,catalog,total,annualRate,policy,terms,busy,onChange,onReview,discussion}:{
   sessionId:string; catalog:Asset[]; total:number; annualRate:number; policy:string; terms:string; busy:boolean;
-  onChange:(w:Allocation)=>void; onReview:(w:Allocation)=>void; discussion:(apply:(w:Allocation)=>void)=>ReactNode;
+  onChange:(w:Allocation)=>void; onReview:(w:Allocation)=>void; discussion:(apply:(w:Allocation)=>void,context:SetupContext)=>ReactNode;
 }) {
   const key = 'eru-setup-v4-' + sessionId;
   const [state,setState] = useState<Setup>(()=>restore(key));
@@ -59,11 +59,11 @@ export default function PortfolioSetup({sessionId,catalog,total,annualRate,polic
     <div className="page-title"><div className="eyebrow">AI와 함께 만드는 나의 첫 포트폴리오</div><h1>{['어떤 투자 방식이 나에게 맞을까요?','현금과 투자, 먼저 나눠볼까요?','투자금으로 무엇을 담을까요?','함께 만든 계획을 확인해요'][step]}</h1></div>
     <div className="setup-layout">
       <aside className="setup-coach panel">
-        <div className="coach-identity"><span className="coach-avatar" aria-hidden="true">E</span><div><b>ERU 투자 도우미</b><small>규칙 기반 안내</small></div></div>
+        <div className="coach-identity"><span className="coach-avatar" aria-hidden="true">E</span><div><b>ERU 투자 도우미</b><small>단계별 안내 · 아래에서 AI와 논의</small></div></div>
         <div className="coach-message" aria-live="polite"><p>{coach}</p></div>
         {preference && <><div className="setup-user">{reply}</div><div className="coach-message"><p>{step===0 ? preference.answer + (cash!==preference.cash ? ' 현재 계획은 현금 ' + cash + '%로 직접 조정한 상태예요.' : '') : step===1 ? '현재 현금은 ' + money(total*cash/100) + ', 투자금은 ' + money(investment) + '이에요. 성향별 비중은 출발점이므로 원하는 비중으로 바꿔도 괜찮아요.' : step===2 ? selected.length===1 && investment>0 ? '한 종목에 투자금을 모두 담는 구성이에요. 이 코인의 가격 변화가 투자금 전체에 반영되는 점을 확인해 주세요.' : investment===0 ? '시장에 참여하지 않고 현금을 보유하는 것도 하나의 선택이에요. 이후 가드와 논의하며 투자할 수 있어요.' : '종목별 비중은 투자금 안에서 합계 100%가 되도록 정해요. 여러 코인을 골라도 함께 하락할 수 있어요.' : '시작하면 코인 매수 예산에 수수료가 포함되고, 다음 일봉 시가에 체결돼요. 남은 현금에는 게임 기간에 따라 이자가 쌓여요.'}</p></div></>}
         <div className="setup-mini-summary"><span>{preference?.name ?? '성향 선택 전'}</span><b>총자금 {money(total)}</b>{profile && <small>현금 {cash}% · 투자 {Number((100-cash).toFixed(2))}%</small>}</div>
-        <details className="setup-questions"><summary>궁금한 점을 더 물어볼까요?</summary>{discussion(apply)}</details>
+        <div className="setup-questions">{discussion(apply,state)}</div>
         {feedback && <p className="fine" role="status">{feedback}</p>}
       </aside>
       <section className="panel setup-options">

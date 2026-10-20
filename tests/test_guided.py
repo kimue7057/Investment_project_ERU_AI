@@ -44,6 +44,7 @@ def client(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "anchors", {})
     monkeypatch.delenv("AI_GATEWAY_API_KEY", raising=False)
     monkeypatch.delenv("VERCEL_OIDC_TOKEN", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with TestClient(main.app) as c:
         yield c
     db.close()
@@ -212,16 +213,17 @@ def test_guard_approval_exactly_once_and_rebalance(client):
 
 
 def test_llm_cannot_publish_untrusted_text_or_invalid_weights(engine, monkeypatch):
-    monkeypatch.setenv("AI_GATEWAY_API_KEY","test-only")
+    monkeypatch.setenv("OPENAI_API_KEY","test-only")
     g = engine.public(fresh(guided=True))
     def response(*args,**kwargs):
         assert "source_url" not in json.dumps(kwargs["json"])
-        return httpx.Response(200,json={"choices":[{"message":{"content":json.dumps({"facts":["untrusted_future"],"allocation":CASH,"suggest_allocation":True,"secret":"BTC https://example.invalid"})}}]})
+        return httpx.Response(200,json={"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":json.dumps({"paragraphs":["BTC https://example.invalid"],"fact_ids":["cash"],"allocation":CASH,"suggest_allocation":True})}]}]})
     monkeypatch.setattr(mentor.httpx,"post",response)
     r = mentor.discuss(g,"이 코인의 위험은?","A",BALANCED)
     assert r["source"] == "rules" and "example.invalid" not in json.dumps(r) and "BTC" not in json.dumps(r)
     def valid(*args,**kwargs):
-        return httpx.Response(200,json={"choices":[{"message":{"content":json.dumps({"facts":["cash","execute"],"allocation":CASH,"suggest_allocation":True,"extra":"BTC future"})}}]})
+        result = {"supported":True} if kwargs["json"]["text"]["format"]["name"] == "answer_review" else {"paragraphs":["현금으로 보유하면 코인 가격 변동에 노출되는 금액을 줄일 수 있어요."],"fact_ids":["allocation","cash"],"allocation":CASH,"suggest_allocation":True}
+        return httpx.Response(200,json={"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":json.dumps(result)}]}]})
     monkeypatch.setattr(mentor.httpx,"post",valid)
     r = mentor.discuss(g,"대기 자금 위주로 구성해줘","A",BALANCED)
     assert r["source"] == "ai" and r["weights"] == CASH

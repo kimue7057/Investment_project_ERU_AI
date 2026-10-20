@@ -3,7 +3,7 @@ import Chart from './Chart';
 import PlanEditor from './PlanEditor';
 import Mentor from './Mentor';
 import PortfolioSetup from './PortfolioSetup';
-import { aliases, money, pct, date, clock, validWeights, type Alias, type Allocation, type Asset, type GuidedGame, type Approval } from './model';
+import { aliases, money, pct, date, clock, validWeights, type Alias, type Allocation, type Asset, type GuidedGame, type Approval, type SetupContext } from './model';
 
 type View = 'portfolio'|'assets'|'discussion'|'records'|'result';
 const SESSION = 'eru-guided-v3-session';
@@ -113,9 +113,9 @@ export default function App() {
     if (game.status === 'running' && !await action('pause')) return;
     setView('discussion');
   }
-  async function ask(question:string) {
+  async function ask(question:string,setup?:SetupContext) {
     if (!validWeights(draft)) {setError('AI와 논의하려면 초안 비중 합계를 먼저 100%로 맞춰 주세요.'); return;}
-    await action('chat',{request_id:crypto.randomUUID(),question,asset:selected,draft});
+    await action('chat',{request_id:crypto.randomUUID(),question,asset:selected,draft,...(setup ? {setup}: {})});
   }
   function apply(w:Allocation) {setDraft(w); setNotice('구성 초안에 담았어요. 확인·승인 전에는 주문하지 않아요.'); if (game?.status !== 'ready') setDecision('rebalance');}
   const alert = game?.alerts.find(a=>a.decision === null);
@@ -151,7 +151,7 @@ export default function App() {
       {ready && view !== 'records' && <PortfolioSetup key={game.id} sessionId={game.id} catalog={catalog} total={game.initial}
         annualRate={account!.annual_rate} policy={account!.policy} terms={account!.terms} busy={busy} onChange={setDraft}
         onReview={w=>{setDraft(w);setReview('start');}}
-        discussion={accept=><Mentor messages={game.chat} busy={busy} selected={selected} onSelect={setSelected} onAsk={ask} onApply={accept} setup/>}/>}
+        discussion={(accept,context)=><Mentor messages={game.chat} busy={busy} selected={selected} onSelect={setSelected} onAsk={q=>ask(q,context)} onApply={accept} setup/>}/>}
       {!ready && !finished && alert && <section className="guard-banner" role="status"><div><span className="eyebrow">리스크 가드</span><h2>시장을 잠시 멈췄어요</h2><p>{alert.summary}</p></div><button className="btn primary" onClick={()=>setView('discussion')}>AI와 대응 논의</button></section>}
       {!ready && view === 'portfolio' && !finished && <>
         <div className="page-title"><div className="eyebrow">계획이 실제 선택으로 바뀌는 중</div><h1>나의 투자 여정</h1><p>가격의 변화, 기다리는 돈의 이자, 내가 내린 판단을 함께 확인해요.</p></div>

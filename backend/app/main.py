@@ -7,7 +7,7 @@ import time
 import uuid
 import logging
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -98,11 +98,20 @@ class Decision(Strict):
     percent: float | None = Field(None, gt=0, le=100)
 
 
+class SetupContext(Strict):
+    profile: Literal["cautious", "balanced", "active"] | None = None
+    step: int = Field(ge=0, le=3)
+    cash: float = Field(ge=0, le=100)
+    selected: list[Literal["A", "B", "C", "D"]] = Field(max_length=4)
+    shares: dict[Literal["A", "B", "C", "D"], Annotated[float, Field(ge=0, le=100)]]
+
+
 class Chat(Strict):
     request_id: uuid.UUID
     question: str = Field(min_length=1, max_length=600)
     asset: Literal["A", "B", "C", "D"] = "A"
     draft: dict[str, float]
+    setup: SetupContext | None = None
 
 
 class ApprovedOrder(Strict):
@@ -379,7 +388,8 @@ def chat(sid: str, body: Chat):
     snapshot = update(sid, begin, body.asset)
     if any(c["id"] == request_id for c in snapshot["chat"]):
         return snapshot
-    reply = discuss(snapshot, body.question.strip(), body.asset, body.draft)
+    setup = body.setup.model_dump() if body.setup and snapshot["status"] == "ready" else None
+    reply = discuss(snapshot, body.question.strip(), body.asset, body.draft, setup)
     def finish(s):
         if s.get("chat_request") != request_id or s["now"] != snapshot["now"] or s["status"] != snapshot["status"]:
             raise ValueError("논의 중 투자 상태가 바뀌었습니다. 현재 상태에서 다시 질문하세요.")
