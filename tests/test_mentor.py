@@ -33,7 +33,7 @@ def response(result):
 
 def answer(**changes):
     result = {"paragraphs": ["현금을 늘리면 코인의 가격 변화에 노출되는 금액을 줄일 수 있어요. 어느 정도의 비중이 편하신가요?"],
-              "fact_ids": ["allocation", "cash"], "allocation": None, "suggest_allocation": False}
+              "fact_ids": ["allocation", "cash"], "allocation": None, "suggest_allocation": False, "risk_rules": None, "setup_preference": None}
     result.update(changes)
     return result
 
@@ -118,6 +118,46 @@ def test_valid_proposal_is_only_a_draft(game, monkeypatch):
     monkeypatch.setattr(mentor.httpx, "post", lambda *a, **kw: response(next(replies)))
     r = mentor.discuss(game, "현금 반으로 하고 A와 B만 유지해줘", "A", PLAN, SETUP)
     assert r["source"] == "ai" and r["weights"] == proposed and game == before
+
+
+def test_risk_consultation_proposal_keeps_portfolio_and_rules_unconfirmed(game, monkeypatch):
+    from backend.app.risk_policy import DEFAULT_RULES
+    proposed = [*DEFAULT_RULES, {"metric":"asset_loss","asset":"A","threshold":8,"enabled":True}]
+    before = copy.deepcopy(game)
+    replies = iter([answer(paragraphs=["새벽코인의 매수원가 대비 평가손실이 8% 이상이면 시장을 멈추고 함께 판단하는 조건을 제안해요. 최종 승인 전에는 적용되지 않아요."],fact_ids=["risk_policy"],risk_rules=proposed), {"supported":True}])
+    def post(*args, **kw):
+        ctx=json.loads(kw["json"]["messages"][1]["content"])["context"]
+        assert ctx["setup"]["risk_rules"] == DEFAULT_RULES
+        return response(next(replies))
+    monkeypatch.setattr(mentor.httpx,"post",post)
+    r=mentor.discuss(game,"새벽코인 8% 손실 조건을 추가해줘","A",PLAN,{**SETUP,"step":3,"risk_rules":DEFAULT_RULES})
+    assert r["source"]=="ai" and r["weights"] is None and r["risk_rules"]==proposed
+    assert game==before and game["risk_rules"] is None
+
+
+def test_profile_and_cash_can_be_proposed_before_coin_selection(game, monkeypatch):
+    partial={**SETUP,"profile":None,"step":0,"selected":[],"shares":dict.fromkeys("ABCD",0)}
+    preference={"profile":"cautious","cash":65}
+    replies=iter([answer(fact_ids=["preference"],setup_preference=preference),{"supported":True}])
+    monkeypatch.setattr(mentor.httpx,"post",lambda *a,**kw:response(next(replies)))
+    before=copy.deepcopy(game)
+    r=mentor.discuss(game,"안정형으로 현금 65%로 시작하고 싶어","A",CASH,partial)
+    assert r["source"]=="ai" and r["setup_preference"]==preference and r["weights"] is None
+    assert game==before
+
+
+@pytest.mark.parametrize("rules", [[{"metric":"price","asset":"A","threshold":8,"enabled":True}], [{"metric":"asset_loss","asset":"A","threshold":0,"enabled":True}]])
+def test_invalid_ai_risk_proposal_is_not_published(game, monkeypatch, rules):
+    monkeypatch.setattr(mentor.httpx,"post",lambda *a,**kw:response(answer(risk_rules=rules)))
+    r=mentor.discuss(game,"알림 조건을 정해줘","A",PLAN,SETUP)
+    assert r["source"]=="rules" and "risk_rules" not in r and r["weights"] is None
+
+
+def test_post_start_risk_change_cannot_be_claimed_as_applied(game, monkeypatch):
+    game["status"]="paused"
+    monkeypatch.setattr(mentor.httpx,"post",lambda *a,**kw:response(answer(risk_rules=[])))
+    r=mentor.discuss(game,"리스크 알림 모두 꺼줘","A",PLAN)
+    assert r["source"]=="rules" and "risk_rules" not in r
 
 
 @pytest.mark.parametrize("status,code,expected", [(401, "invalid_api_key", "키 인증"),

@@ -218,12 +218,12 @@ def test_llm_cannot_publish_untrusted_text_or_invalid_weights(engine, monkeypatc
     g = engine.public(fresh(guided=True))
     def response(*args,**kwargs):
         assert "source_url" not in json.dumps(kwargs["json"])
-        return httpx.Response(200,json={"choices":[{"finish_reason":"stop","message":{"content":json.dumps({"paragraphs":["BTC https://example.invalid"],"fact_ids":["cash"],"allocation":CASH,"suggest_allocation":True})}}]})
+        return httpx.Response(200,json={"choices":[{"finish_reason":"stop","message":{"content":json.dumps({"paragraphs":["BTC https://example.invalid"],"fact_ids":["cash"],"allocation":CASH,"suggest_allocation":True,"risk_rules":None,"setup_preference":None})}}]})
     monkeypatch.setattr(mentor.httpx,"post",response)
     r = mentor.discuss(g,"이 코인의 위험은?","A",BALANCED)
     assert r["source"] == "rules" and "example.invalid" not in json.dumps(r) and "BTC" not in json.dumps(r)
     def valid(*args,**kwargs):
-        result = {"supported":True} if kwargs["json"]["response_format"]["json_schema"]["name"] == "answer_review" else {"paragraphs":["현금으로 보유하면 코인 가격 변동에 노출되는 금액을 줄일 수 있어요."],"fact_ids":["allocation","cash"],"allocation":CASH,"suggest_allocation":True}
+        result = {"supported":True} if kwargs["json"]["response_format"]["json_schema"]["name"] == "answer_review" else {"paragraphs":["현금으로 보유하면 코인 가격 변동에 노출되는 금액을 줄일 수 있어요."],"fact_ids":["allocation","cash"],"allocation":CASH,"suggest_allocation":True,"risk_rules":None,"setup_preference":None}
         return httpx.Response(200,json={"choices":[{"finish_reason":"stop","message":{"content":json.dumps(result)}}]})
     monkeypatch.setattr(mentor.httpx,"post",valid)
     r = mentor.discuss(g,"대기 자금 위주로 구성해줘","A",BALANCED)
@@ -241,6 +241,23 @@ def test_inflight_duplicate_chat_does_not_call_model(client, monkeypatch):
     monkeypatch.setattr(main,"discuss",lambda *a:pytest.fail("중복 요청은 모델을 호출하면 안 됩니다."))
     r = client.post("/api/sessions/"+g["id"]+"/chat",json={"request_id":rid,"question":"이자는?","asset":"A","draft":CASH})
     assert r.status_code == 400 and not main.load(g["id"])["chat"]
+
+
+def test_initial_risk_settings_are_validated_and_saved_only_on_start(client):
+    g=client.post("/api/guided-sessions",json={}).json()
+    url="/api/sessions/"+g["id"]
+    rules=[{"metric":"asset_loss","asset":"A","threshold":8,"enabled":True}]
+    body={"request_id":str(uuid.uuid4()),"question":"알림 조건의 의미를 알려줘","draft":CASH,
+          "setup":{"profile":"balanced","step":3,"cash":100,"selected":[],"shares":dict.fromkeys("ABCD",0),"risk_rules":rules}}
+    r=client.post(url+"/chat",json=body)
+    assert r.status_code==200 and r.json()["risk_rules"] is None and not r.json()["trades"]
+    bad=client.post(url+"/start",json={"weights":CASH,"risk_rules":[{**rules[0],"threshold":-8}]})
+    assert bad.status_code==422 and main.load(g["id"])["status"]=="ready"
+    r=client.post(url+"/start",json={"weights":CASH,"risk_rules":rules})
+    assert r.status_code==200 and r.json()["risk_rules"]==rules and not r.json()["trades"]
+    assert client.get(url).json()["risk_rules"]==rules
+    assert client.post(url+"/start",json={"weights":CASH,"risk_rules":[]}).status_code==400
+    assert client.get(url).json()["risk_rules"]==rules
 
 
 @pytest.mark.parametrize("question,cash", [("안정형으로 구성해줘",60),("균형형으로 구성해줘",30),("공격형으로 구성해줘",10)])

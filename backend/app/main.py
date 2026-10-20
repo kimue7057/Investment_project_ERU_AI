@@ -12,12 +12,13 @@ from typing import Annotated, Literal
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .engine import Engine, fresh, weights
 from .market import Market, ROOT, START, CATALOG
 from .blob_store import BlobSessions, StorageConflict
 from .mentor import discuss
+from .risk_policy import validate_rules
 
 app = FastAPI(title="ERU AI Alpha V1", docs_url=None, redoc_url=None, openapi_url=None)
 lock = threading.RLock()
@@ -84,6 +85,15 @@ class Allocation(Strict):
     weights: dict[str, float]
 
 
+class StartPlan(Allocation):
+    risk_rules: list[dict] | None = None
+
+    @field_validator("risk_rules")
+    @classmethod
+    def validated_rules(cls, value):
+        return validate_rules(value) if value is not None else None
+
+
 class Trade(Strict):
     asset: Literal["A", "B", "C", "D"]
     side: Literal["buy", "sell"]
@@ -100,10 +110,16 @@ class Decision(Strict):
 
 class SetupContext(Strict):
     profile: Literal["cautious", "balanced", "active"] | None = None
-    step: int = Field(ge=0, le=3)
+    step: int = Field(ge=0, le=4)
     cash: float = Field(ge=0, le=100)
     selected: list[Literal["A", "B", "C", "D"]] = Field(max_length=4)
     shares: dict[Literal["A", "B", "C", "D"], Annotated[float, Field(ge=0, le=100)]]
+    risk_rules: list[dict] | None = None
+
+    @field_validator("risk_rules")
+    @classmethod
+    def validated_rules(cls, value):
+        return validate_rules(value) if value is not None else None
 
 
 class Chat(Strict):
@@ -267,8 +283,8 @@ def state(sid: str, asset: str = "A"):
 
 
 @app.post("/api/sessions/{sid}/start")
-def start(sid: str, body: Allocation):
-    return update(sid, lambda s: engine.start(s, body.weights))
+def start(sid: str, body: StartPlan):
+    return update(sid, lambda s: engine.start(s, body.weights, body.risk_rules))
 
 
 @app.post("/api/sessions/{sid}/play")

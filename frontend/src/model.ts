@@ -23,9 +23,12 @@ export type Game = {mode?: "paper"; fee_rate?: number; id: string; status: 'read
   alerts: Alert[]; choices: {action: string}[]; research: Research[]; trades: Trade[]; history: {time: string; value: number}[];
   identities?: Record<string, string>; baseline_return_pct?: number};
 
-export type Discussion = {id: string; at: string; question: string; paragraphs: string[]; source: 'ai'|'rules'|'boundary'; status: string; weights: Allocation | null};
-export type SetupContext = {profile: 'cautious'|'balanced'|'active'|null; step: number; cash: number; selected: Alias[]; shares: Record<Alias,number>};
+export type RiskRule = {metric:'concentration'|'asset_loss'|'daily_drop'|'portfolio_loss'; asset:Alias|'held'|'portfolio'; threshold:number; enabled:boolean};
+export type SetupPreference = {profile:'cautious'|'balanced'|'active';cash:number};
+export type Discussion = {id: string; at: string; question: string; paragraphs: string[]; source: 'ai'|'rules'|'boundary'; status: string; weights: Allocation | null; risk_rules?:RiskRule[]; setup_preference?:SetupPreference};
+export type SetupContext = {profile: 'cautious'|'balanced'|'active'|null; step: number; cash: number; selected: Alias[]; shares: Record<Alias,number>; risk_rules?:RiskRule[]};
 export type GuidedGame = Omit<Game, 'mode'|'trades'> & {mode: 'guided'; initial_plan: Record<string,string> | null; trades:FilledTrade[]; asset_performance:AssetPerformance[];
+  risk_rules:RiskRule[]|null;
   interest_account: {accrued: number; annual_rate: number; principal: number; reserved: number; available: number; settled: boolean; policy: string; terms: string};
   trading_profit: number; chat: Discussion[];
   choices: {at: string; action: string; summary?: string; alert_id?: string}[]};

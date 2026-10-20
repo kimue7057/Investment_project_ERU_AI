@@ -8,6 +8,7 @@ from .market import ALIASES, START, END
 from .interest import accrue, public_interest
 from .assets import display_names
 from .trade_history import journal
+from .risk_policy import evaluate as custom_guard, validate_rules
 
 D = Decimal
 INITIAL = D("100000000")
@@ -70,12 +71,17 @@ class Engine:
         if s["pending"]:
             raise ValueError("대기 주문이 있습니다. 취소하거나 시장을 재개해 체결하세요.")
 
-    def start(self, s, allocation):
+    def start(self, s, allocation, risk_rules=None):
         if s.get("mode") == "paper":
             raise ValueError("모의투자는 초기 비중 설정 없이 시작하세요.")
         if s["status"] != "ready":
             raise ValueError("이미 시작된 게임입니다.")
         w = weights(allocation)
+        rules = validate_rules(risk_rules) if risk_rules is not None else None
+        if rules is not None and s.get("mode") != "guided":
+            raise ValueError("상담형 투자에서 리스크 조건을 설정하세요.")
+        if rules is not None:
+            s["risk_rules"] = copy.deepcopy(rules)
         s["targets"] = {a: str(v) for a, v in w.items()}
         at = self.market.next_open(self.now(s))
         s["pending"] = ({"kind": "initial", "at": at.isoformat(), "weights": s["targets"].copy()}
@@ -207,6 +213,8 @@ class Engine:
             s["history"].append(entry)
 
     def guard(self, s):
+        if s.get("mode") == "guided" and s.get("risk_rules") is not None:
+            return custom_guard(self, s)
         now = self.now(s)
         cooldown = 90 if s.get("mode") == "guided" else 14
         if s["last_alert"] and now - datetime.fromisoformat(s["last_alert"]) < timedelta(days=cooldown):
@@ -341,6 +349,7 @@ class Engine:
                        "chart_asset", "trades", "history", "fee_rate", "identities", "guard")
             public = {k: public[k] for k in allowed if k in public}
             public.update({"mode": "guided", "interest_account": public_interest(s, now),
+                           "risk_rules": copy.deepcopy(s.get("risk_rules")),
                            "initial_plan": copy.deepcopy(s["initial_plan"]), "chat": copy.deepcopy(s["chat"]),
                            "trading_profit": float(D(s["realized"])) + sum(h["unrealized"] for h in holdings)})
             public["trades"], public["asset_performance"] = journal(s["trades"], {a: self.market.quote(a, now) for a in ALIASES})
