@@ -109,12 +109,19 @@ class Decision(Strict):
 
 
 class SetupContext(Strict):
+    mode: Literal["conversation"] | None = None
+    allocation: dict[str, float] | None = None
     profile: Literal["cautious", "balanced", "active"] | None = None
     step: int = Field(ge=0, le=4)
     cash: float = Field(ge=0, le=100)
     selected: list[Literal["A", "B", "C", "D"]] = Field(max_length=4)
     shares: dict[Literal["A", "B", "C", "D"], Annotated[float, Field(ge=0, le=100)]]
     risk_rules: list[dict] | None = None
+
+    @field_validator("allocation")
+    @classmethod
+    def validated_allocation(cls, value):
+        return {a:float(v) for a,v in weights(value).items()} if value is not None else None
 
     @field_validator("risk_rules")
     @classmethod

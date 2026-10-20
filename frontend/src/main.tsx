@@ -6,3 +6,5 @@ import './guided.css';
 import './setup.css';
 import './history.css';
 ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><App/></React.StrictMode>);
+
+import './consultation.css';

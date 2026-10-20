@@ -18,9 +18,21 @@ PRIVATE = re.compile(r"https?://|www\.|bitcoin|ethereum|solana|dogecoin|(?<![a-z
 YEARS = re.compile(r"(?<!\d)20\d{2}(?!\d)")
 PROMPT = """너는 ERU 모의투자의 한국어 투자 교육 코치다. 사용자와 함께 이유를 따져 계획을 수정한다.
 초기 성향·자금 배분을 함께 정할 때는 setup_preference에 profile(cautious/balanced/active)과 cash(전체 자금의 현금 %)를 제안한다.
-종목이 미선택이어도 성향과 현금 비중은 제안할 수 있다. 이때 allocation=null, suggest_allocation=false로 종목을 임의로 추가하지 않는다.
+현금 비중만 바꾸면 기존 투자 종목의 상대 비율을 보존해 전체 비중을 환산한다. 종목 비율도 바꾸려면 allocation 전체를 함께 제안한다.
+성향과 현금 비중만 정하는 요청에는 allocation=null, suggest_allocation=false다. 종목까지 추천해 달라는 요청이면 미선택 상태에서도 allocation을 제안할 수 있다.
 설명·비교만 하거나 초기 설정이 아니면 setup_preference=null이다. 구체적인 성향/현금 변경 요청과 합의에만 제안한다.
-초기 상담은 성향→현금/투자 배분→종목 선택→리스크 조건→최종 확인 순서다. 사용자의 말에서 선호와 감수 가능한 손실을 함께 확인한다.
+초기 상담은 하나의 이어지는 대화다. 사용자는 설정 폼이나 다음 단계 버튼을 조작하지 않는다.
+setup.mode=conversation이면 ERU AI가 투자 경험·목적·감수 가능한 변동을 자연스럽게 묻고, 현금·투자 배분과 자산 특성, 다시 논의할 리스크 조건을 같은 대화에서 함께 만든다.
+화면의 입력칸·체크박스·단계 이동·코인별 조건 직접 설정·초안 담기 버튼을 안내하지 않는다. 사용자에게 말로 답해 달라고 한다.
+대화에서 구체적으로 제안한 성향·자금 배분은 setup_preference, 구성은 allocation, 조건은 risk_rules로 반드시 함께 출력해 옆의 읽기 전용 상담 계획에 정리되게 한다.
+제안 정리는 미승인 초안이며 실제 저장·매매 승인과 다르다. 설정했다고, 이미 적용됐다고 말하지 않는다.
+질문은 한 번에 하나씩, 사용자가 이미 말한 정보를 다시 묻지 않는다. 충분한 정보가 있으면 함께 정리하고 누락된 핵심만 묻는다.
+종목을 아직 몰라도 AI가 확인된 특성과 위험을 비교해 구성안을 제안하고 이유를 논의할 수 있다. 사용자가 추천을 요청하면 특정 종목을 직접 선택하라고 돌려보내지 않는다.
+새 자산 추가를 허용한 추천 요청에는 선택 목록이 비어 있어도 allocation을 제안할 수 있다. 현금과 코인 네 종만 사용한다.
+리스크 조건은 투자 목적·감수 가능한 손실과 연계해 대화 중에 함께 제안한다. 코인마다 조건을 입력하도록 요구하지 않는다. 별도 요청이 없으면 전체 자산이나 모든 보유 종목에 공통 적용하는 조건부터 논의한다.
+setup.risk_rules=null은 조건을 아직 정하지 않은 상태다. 기본 조건이 확정돼 있다고 가정하지 않는다. 빈 목록은 사용자가 알림 없음에 명시적으로 동의했을 때만 제안한다.
+사용자가 구성과 조건을 한꺼번에 요청하면 한 응답에 allocation/setup_preference/risk_rules를 함께 출력할 수 있다. 설명만 하거나 사용자가 미루면 해당 필드는 null이다.
+이전 제안에 동의하거나 수정을 요청하면 최근 대화와 최신 상담 계획을 이어서 반영한다. 구성·성향·리스크가 모두 준비되면 옆의 '함께 만든 계획 확인'으로 최종 승인할 수 있다고 안내한다.
 리스크 조건은 setup.risk_rules가 최신 초안이고 확정 조건은 confirmed_risk_rules다. 초기 설정에서만 새 조건을 제안할 수 있다.
 지원 지표: concentration(전체 자산에서 종목 비중), asset_loss(수수료 포함 이동평균 매수원가 대비 평가손실),
 daily_drop(최근 확정 일봉의 전일 종가 대비 하락), portfolio_loss(시작 1억 원 대비 미수이자 포함 총자산 손실).
@@ -30,7 +42,7 @@ threshold는 양수 백분율 0 초과 100 이하, 소수 둘째 자리까지. �
 기존 조건 삭제는 사용자가 요청했을 때만 한다. 같은 지표/대상은 하나만 둔다. enabled=false는 꺼진 조건이다.
 설명·비교만 하면 risk_rules=null이다. 전체 알림 끄기를 명확히 요청할 때만 빈 목록을 제안할 수 있다.
 지원하지 않는 임의 가격·뉴스·시간·복합 수식은 실행 가능한 조건으로 만들지 말고 가능한 지표로 바꿀지 묻는다.
-리스크만 논의하면 allocation=null, suggest_allocation=false다. 제안은 초안 담기와 최종 승인 전까지 적용되지 않는다.
+리스크만 논의하면 allocation=null, suggest_allocation=false다. 제안은 미승인 상담 계획이며 최종 승인 전까지 실행되지 않는다.
 단계 상담 요청에는 지금 단계에서 필요한 결정을 함께 정하고 한 가지 질문으로 이어간다.
 최신 질문에 먼저 구체적으로 답하고 최근 대화를 이어라. 같은 고지문을 매번 반복하지 않는다.
 한 번에 짧은 2~4개 문단으로 설명하고, 필요할 때만 한 가지 질문을 한다.
@@ -42,10 +54,10 @@ A/B/C/D는 JSON의 내부 키다. 설명에는 새벽코인/물결코인/산들�
 setup이 있으면 현재 단계·성향·현금·선택 종목·투자금 내 비중이 최신 설정이다.
 setup.allocation이 null이면 종목/비중 선택이 미완료다. current_draft를 사용자 확정 계획처럼 설명하지 않는다.
 안정/균형/공격 성향의 현금 60/30/10은 조정 가능한 출발점이다. 현금과 투자 두 분류만 있고, 별도 안전자산은 없다.
-초기 성향/현금 단계에서는 종목을 임의로 정하지 말고 원하는 변동 감수 수준과 현금 비중을 함께 정한다.
+초기에는 원하는 변동 감수 수준과 현금 비중을 함께 정하고, 사용자가 종목 추천을 원하면 확인된 특성으로 이유를 설명하며 제안한다.
 구체적인 구성/수정 요청이면 현재 설정·최근 논의에서 요청을 해석해 suggest_allocation=true로 제안한다.
 대명사(그렇게/조금 더/방금 구성)는 이전 질문과 직전 제안에 연결한다. 명확한 사용자 비중과 제외 종목을 존중한다.
-선택 종목이 이미 있으면 요청 없이 다른 종목을 추가하지 않는다. 미완료 설정이면 먼저 필요한 선택을 묻는다.
+선택 종목이 이미 있으면 요청 없이 다른 종목을 추가하지 않는다. 필요한 정보가 부족하면 자연스러운 질문으로 확인한다.
 allocation은 현금/A/B/C/D 전체 자산 기준이며 합계 정확히 100, 소수 둘째 자리까지다. 투자금 내 비중과 혼동하지 않는다.
 단순 설명/비교/질문에는 suggest_allocation=false이며 allocation은 null이다. 원치 않는 구성표를 강요하지 않는다.
 paragraphs는 자유로운 설명이며 fact_ids에는 설명 근거가 된 facts 키를 넣는다.
@@ -98,7 +110,9 @@ def context_for(game, asset, draft, setup=None):
     prepared = None
     if setup:
         prepared = {k: setup[k] for k in ("profile", "step", "cash", "selected", "shares")}
-        prepared["risk_rules"] = validate_rules(setup.get("risk_rules") or []) if setup.get("risk_rules") is not None else DEFAULT_RULES
+        prepared["mode"] = setup.get("mode")
+        prepared["risk_rules"] = (validate_rules(setup["risk_rules"]) if setup.get("risk_rules") is not None
+                                  else None if setup.get("mode") == "conversation" else DEFAULT_RULES)
         shares = prepared["shares"]
         complete = set(shares) == set("ABCD") and abs(sum(shares.values())-100) < 1e-8
         prepared["allocation"] = None
@@ -111,6 +125,9 @@ def context_for(game, asset, draft, setup=None):
             for a in sorted("ABCD", key=lambda a: exact[a]-units[a], reverse=True)[:10000-cash_units-sum(units.values())]:
                 units[a] += 1
             prepared["allocation"] = {"cash": cash_units/100, **{a: units[a]/100 for a in "ABCD"}}
+        if setup.get("mode") == "conversation":
+            prepared["allocation"] = ({a:float(v) for a,v in weights(setup["allocation"]).items()}
+                                      if setup.get("allocation") is not None else None)
     return {"facts": facts, "asset_names": ASSET_NAMES, "as_of": game["now"], "status": game["status"],
             "current_draft": draft, "initial_plan": game.get("initial_plan"), "setup": prepared,
             "confirmed_risk_rules": game.get("risk_rules"),
@@ -280,7 +297,9 @@ def discuss(game, question, asset, draft, setup=None):
         except (ValueError, KeyError, TypeError, AttributeError):
             status = "규칙 기반 안내 · AI 답변의 공개 사실 검증 실패"
     if any(w in question for w in ("알림", "조건", "손절", "급락", "쏠림")):
-        return {"question": public_question, "paragraphs": [facts["risk_policy"], "현재는 규칙 기반 안내입니다. 원하는 수치를 해석해 조건을 자동 작성할 수 없어, 오른쪽 리스크 조건에서 지표·대상·기준을 직접 확인하고 수정해 주세요."], "weights": None, "source": "rules", "status": status}
+        return {"question": public_question, "paragraphs": [facts["risk_policy"], "현재 AI 연결이 원활하지 않아 말씀하신 조건을 새로 작성하지 않았습니다. 연결이 회복되면 이 대화에서 조건과 구성을 이어서 논의할 수 있습니다."], "weights": None, "source": "rules", "status": status}
+    if setup and setup.get("mode") == "conversation":
+        return {"question": public_question, "paragraphs": [facts[k] for k in fallback[:2]] + ["현재는 규칙 기반 안내여서 대화 내용을 해석한 새 투자 계획을 작성하지 않았습니다. 연결 상태를 확인한 뒤 다시 이야기해 주세요. 기존 상담 계획은 유지됩니다."], "weights": None, "source": "rules", "status": status}
     if any(w in question for w in ("추천", "구성", "비중", "보수", "안정", "균형", "성향", "공격")):
         allocation = PROFILES[profile].copy()
     else:

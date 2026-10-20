@@ -14,7 +14,7 @@
 
 ## 사용자 흐름과 공개 경계
 
-성향·현금/투자 비중·선택 종목·설정 단계, 최근 12개 질문과 답변 및 제안, 현재 공개된 사실과 미해결 가드 근거를 전달합니다. 원본 시세·원문 URL·실제 식별자·미래 이벤트·미확정 일봉은 전달하지 않습니다. 외부 도구와 웹 검색은 제공하지 않습니다.
+성향·현금/투자 비중·선택 종목·정확한 상담 배분과 리스크 초안, 최근 12개 질문과 답변 및 제안, 현재 공개된 사실과 미해결 가드 근거를 전달합니다. 원본 시세·원문 URL·실제 식별자·미래 이벤트·미확정 일봉은 전달하지 않습니다. 외부 도구와 웹 검색은 제공하지 않습니다.
 
 응답은 기존의 필드·설명 근거·비중·식별자·연도 검사와 별도 근거 검토를 거칩니다. 비중 초안을 적용해도 거래하지 않으며, 별도 승인한 주문만 다음 일봉 시가에 체결합니다. 서버 시계·Decimal 장부·실제 시세·이자 계산은 변경하지 않았습니다. 모델의 의미 검토에는 한계가 있어 규칙 검사와 공개 경계 회귀 테스트를 함께 유지합니다.
 
@@ -32,7 +32,7 @@
 
 ## 검증
 
-백엔드 전체 pytest, 기존 archive unittest 10개, 프론트엔드 타입 검사·테스트·빌드를 실행합니다. 브라우저 실제 연결 검증은 `ERU_BASE_URL=https://eru-ai-investment-simulator.vercel.app`, `ERU_REQUIRE_AI=1`로 `scripts/mentor_smoke.cjs`를 실행합니다. `scripts/guided_smoke.cjs`는 가드 대화와 승인 주문·이자·복원을 확인하며 `ERU_E2E_QUICK=1`은 핵심 흐름 모드입니다. 원시 세션·화면·대화 결과는 Git에서 제외한 test-results에 저장합니다.
+백엔드 전체 pytest, 기존 archive unittest 10개, 프론트엔드 타입 검사·테스트·빌드를 실행합니다. 브라우저 실제 연결 검증은 `ERU_BASE_URL=https://eru-ai-investment-simulator.vercel.app`, `ERU_REQUIRE_AI=1`로 `scripts/conversation_smoke.cjs`를 실행합니다. 현행 초기 화면은 [대화로 만드는 초기 계획](대화로_만드는_초기계획.md)을 따릅니다. `scripts/guided_smoke.cjs`의 단계형 초기 진입은 이전 UI 검증 기록이며, 현재는 새 상담 스크립트와 기존 게임 복원 스크립트를 사용합니다. 원시 세션·화면·대화 결과는 Git에서 제외한 test-results에 저장합니다.
 
 공식 근거: [인증](https://openrouter.ai/docs/api_reference/authentication), [API 연결](https://openrouter.ai/docs/quickstart), [구조화 출력](https://openrouter.ai/docs/guides/features/structured-outputs), [추론 설정](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens).
 

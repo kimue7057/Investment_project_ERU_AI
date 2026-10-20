@@ -74,6 +74,27 @@ def test_incomplete_setup_does_not_claim_old_draft_is_current(game):
     assert ctx["setup"]["allocation"] is None and ctx["setup"]["selected"] == []
 
 
+def test_conversation_has_no_implicit_conditions_or_preselected_plan(game):
+    setup={**SETUP,"mode":"conversation","profile":None,"step":0,"cash":100,
+           "selected":[],"shares":dict.fromkeys("ABCD",0),"allocation":None,"risk_rules":None}
+    ctx=mentor.context_for(game,"A",PLAN,setup)
+    assert ctx["setup"]["allocation"] is None and ctx["setup"]["risk_rules"] is None
+    assert ctx["setup"]["mode"]=="conversation"
+
+
+def test_conversation_passes_exact_plan_and_whole_plan_reply_remains_unapproved(game,monkeypatch):
+    rules=[{"metric":"portfolio_loss","asset":"portfolio","threshold":10,"enabled":True}]
+    setup={**SETUP,"mode":"conversation","allocation":PLAN,"risk_rules":None}
+    ctx=mentor.context_for(game,"A",CASH,setup)
+    assert ctx["setup"]["allocation"]==PLAN
+    replies=iter([answer(allocation=PLAN,suggest_allocation=True,setup_preference={"profile":"balanced","cash":30},risk_rules=rules),{"supported":True}])
+    monkeypatch.setattr(mentor.httpx,"post",lambda *a,**kw:response(next(replies)))
+    before=copy.deepcopy(game)
+    r=mentor.discuss(game,"균형형 구성과 전체 손실 10% 알림을 함께 정리해줘","A",CASH,setup)
+    assert r["source"]=="ai" and r["weights"]==PLAN and r["risk_rules"]==rules
+    assert game==before and game["initial_plan"] is None and game["risk_rules"] is None
+
+
 def test_context_rounding_matches_exact_hundred(game):
     ctx = mentor.context_for(game, "A", PLAN, {**SETUP, "cash": 33.33,
         "selected": ["A", "B", "C"], "shares": {"A": 33.33, "B": 33.33, "C": 33.34, "D": 0}})

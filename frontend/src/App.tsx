@@ -153,9 +153,9 @@ export default function App() {
       {notice && <div className="message success" role="status"><span>{notice}</span><button aria-label="알림 닫기" onClick={()=>setNotice('')}>×</button></div>}
       {!game ? <section className="panel loading"><h1>투자 실험을 준비하고 있어요</h1>{error && <button className="btn primary" onClick={()=>location.reload()}>다시 연결</button>}</section> : <>
       {ready && view !== 'records' && <PortfolioSetup key={game.id} sessionId={game.id} catalog={catalog} total={game.initial}
-        annualRate={account!.annual_rate} policy={account!.policy} terms={account!.terms} busy={busy} onChange={setDraft}
+        annualRate={account!.annual_rate} policy={account!.policy} terms={account!.terms} busy={busy} messages={game.chat} onChange={setDraft}
         onReview={(w,rules)=>{setDraft(w);setStartRules(rules);setReview('start');}}
-        discussion={(accept,context,acceptRisk,acceptPreference)=><Mentor messages={game.chat} busy={busy} selected={selected} onSelect={setSelected} onAsk={q=>ask(q,context)} onApply={accept} onApplyRisk={acceptRisk} onApplyPreference={acceptPreference} setupStage={context.step} setup/>}/>}
+        discussion={context=><Mentor messages={game.chat} busy={busy} selected={selected} onSelect={setSelected} onAsk={q=>ask(q,context)} onApply={apply} conversation setup/>}/>}
       {!ready && !finished && alert && <section className="guard-banner" role="status"><div><span className="eyebrow">리스크 가드</span><h2>시장을 잠시 멈췄어요</h2><p>{alert.summary}</p></div><button className="btn primary" onClick={()=>setView('discussion')}>AI와 대응 논의</button></section>}
       {!ready && view === 'portfolio' && !finished && <>
         <div className="page-title"><div className="eyebrow">계획이 실제 선택으로 바뀌는 중</div><h1>나의 투자 여정</h1><p>가격의 변화, 기다리는 돈의 이자, 내가 내린 판단을 함께 확인해요.</p></div>
