@@ -12,7 +12,7 @@ function Pair({ label, children }: { label: string; children: React.ReactNode })
 async function api(path: string, body?: object): Promise<any> {
   const r = await fetch('/api' + path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   const data = await r.json();
-  if (!r.ok) throw new Error(typeof data.detail === 'string' ? data.detail : '입력값을 확인해 주세요.');
+  if (!r.ok) throw Object.assign(new Error(typeof data.detail === 'string' ? data.detail : '입력값을 확인해 주세요.'), {status: r.status});
   return data;
 }
 
@@ -53,7 +53,7 @@ export default function App() {
     if (!bootstrap.current) bootstrap.current = (async () => {
       const c = await api('/catalog'); setCatalog(c.assets);
       const id = localStorage.getItem(SESSION);
-      if (id) { try { const g = await api(`/sessions/${id}`); if (g.mode === 'paper') return g; } catch { /* 저장 세션이 없으면 새 게임 */ } }
+      if (id) { try { const g = await api(`/sessions/${id}`); if (g.mode === 'paper') return g; } catch (e) { if ((e as {status?: number}).status !== 404) throw e; } }
       const g = await api('/paper-sessions', {}); localStorage.setItem(SESSION, g.id); return g;
     })();
     void bootstrap.current.then(receive).catch(e => setError(e.message));

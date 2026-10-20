@@ -79,6 +79,11 @@ fs.mkdirSync(out, {recursive: true});
     await page.screenshot({path: path.join(out, `${prefix}-05-mobile-detail.png`), fullPage: true});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     await page.setViewportSize({width: 1440, height: 1000});
+    // 연결 오류 때문에 기존 게임을 새 세션으로 덮어쓰면 안 된다.
+    await page.route(`**/api/sessions/${sid}`, route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({detail:'연결 복원 회귀 검사'})}),{times:1});
+    await page.reload();
+    await page.getByRole('alert').filter({hasText:'연결 복원 회귀 검사'}).waitFor();
+    assert.equal(await page.evaluate(()=>localStorage.getItem('eru-paper-session')),sid);
     await page.reload();
     await page.getByRole('heading', {name: '어떤 종목에 투자해 볼까요?'}).waitFor();
     assert.equal(await page.evaluate(() => localStorage.getItem('eru-paper-session')), sid);
