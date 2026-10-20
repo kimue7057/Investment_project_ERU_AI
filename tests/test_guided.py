@@ -223,7 +223,7 @@ def test_llm_cannot_publish_untrusted_text_or_invalid_weights(engine, monkeypatc
     r = mentor.discuss(g,"이 코인의 위험은?","A",BALANCED)
     assert r["source"] == "rules" and "example.invalid" not in json.dumps(r) and "BTC" not in json.dumps(r)
     def valid(*args,**kwargs):
-        result = {"supported":True} if kwargs["json"]["response_format"]["json_schema"]["name"] == "answer_review" else {"paragraphs":["현금으로 보유하면 코인 가격 변동에 노출되는 금액을 줄일 수 있어요."],"fact_ids":["allocation","cash"],"allocation":CASH,"suggest_allocation":True,"risk_rules":None,"setup_preference":None}
+        result = {"supported":True,"reason":"none"} if kwargs["json"]["response_format"]["json_schema"]["name"] == "answer_review" else {"paragraphs":["현금으로 보유하면 코인 가격 변동에 노출되는 금액을 줄일 수 있어요."],"fact_ids":["allocation","cash"],"allocation":CASH,"suggest_allocation":True,"risk_rules":None,"setup_preference":None}
         return httpx.Response(200,json={"choices":[{"finish_reason":"stop","message":{"content":json.dumps(result)}}]})
     monkeypatch.setattr(mentor.httpx,"post",valid)
     r = mentor.discuss(g,"대기 자금 위주로 구성해줘","A",BALANCED)

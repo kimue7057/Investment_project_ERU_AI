@@ -27,6 +27,7 @@ def game(monkeypatch):
 
 
 def response(result):
+    if set(result)=={"supported"}:result={**result,"reason":"none" if result["supported"] else "unverified_market_data"}
     return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {
         "content": json.dumps(result, ensure_ascii=False), "reasoning": "must-not-publish"}}]})
 
