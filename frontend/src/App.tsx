@@ -37,11 +37,37 @@ function Dashboard({user,onOpen,onNew,onLogout,busy}:{user:User;onOpen:(id:strin
 }
 
 export default function App(){
+ const codeToExchange=useRef(new URL(location.href).searchParams.get('code')),linkExchange=useRef<Promise<{user:User}>|null>(null);
  const [returned,setReturned]=useState(()=>loginReturn(location.href));
  useEffect(()=>{const clean=()=>{const next=loginReturn(location.href);history.replaceState(null,'',next.href);if(next.message)setReturned(next);};window.addEventListener('hashchange',clean);return()=>window.removeEventListener('hashchange',clean);},[]);
  useEffect(()=>{history.replaceState(null,'',returned.href);},[returned.href]);
  const [user,setUser]=useState<User|null|undefined>(undefined),[configured,setConfigured]=useState(true),[gameId,setGameId]=useState<string|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[retry,setRetry]=useState(0);
- useEffect(()=>{const controller=new AbortController();accountApi<{configured:boolean;user:User|null}>('/auth/session',undefined,controller.signal).then(r=>{setConfigured(r.configured);setUser(r.user);if(r.user&&retry===0)authNotice();if(r.user){const url=new URL(location.href),fresh=url.searchParams.get('setup')==='1';if(!fresh)setGameId(sessionStorage.getItem('eru-account-game:'+r.user.id));else{url.searchParams.delete('setup');history.replaceState(null,'',url.pathname+url.search+url.hash);}}}).catch(e=>{if(!controller.signal.aborted)setError((e as Error).message);});return()=>controller.abort();},[retry]);
+ useEffect(()=>{
+  const controller=new AbortController();
+  const load=async()=>{
+   if(codeToExchange.current){
+    // StrictMode에서 효과가 재실행돼도 일회용 코드는 한 번만 교환한다.
+    linkExchange.current??=accountApi<{user:User}>('/auth/exchange',{code:codeToExchange.current});
+    try{await linkExchange.current;}
+    catch(e){
+     if(!controller.signal.aborted){setReturned(prev=>({...prev,message:(e as Error).message}));setUser(null);}
+     return;
+    }finally{codeToExchange.current=null;}
+    if(controller.signal.aborted)return;
+   }
+   const r=await accountApi<{configured:boolean;user:User|null}>('/auth/session',undefined,controller.signal);
+   if(controller.signal.aborted)return;
+   setConfigured(r.configured);setUser(r.user);
+   if(r.user&&retry===0)authNotice();
+   if(r.user){
+    const url=new URL(location.href),fresh=url.searchParams.get('setup')==='1';
+    if(!fresh)setGameId(sessionStorage.getItem('eru-account-game:'+r.user.id));
+    else{url.searchParams.delete('setup');history.replaceState(null,'',url.pathname+url.search+url.hash);}
+   }
+  };
+  void load().catch(e=>{if(!controller.signal.aborted)setError((e as Error).message);});
+  return()=>controller.abort();
+ },[retry]);
  useEffect(()=>{const expired=()=>{setUser(null);setGameId(null);setError('');};window.addEventListener('eru-auth-expired',expired);return()=>window.removeEventListener('eru-auth-expired',expired);},[]);
  useEffect(()=>{const refresh=()=>{if(!document.hidden&&user===null)setRetry(n=>n+1);};document.addEventListener('visibilitychange',refresh);return()=>document.removeEventListener('visibilitychange',refresh);},[user]);
  useEffect(()=>{const changed=(e:StorageEvent)=>{if(e.key==='eru-auth-notice')setRetry(n=>n+1);};window.addEventListener('storage',changed);return()=>window.removeEventListener('storage',changed);},[]);

@@ -166,6 +166,18 @@ def test_magic_link_needs_matching_browser_and_latest_proof(auth_app):
     assert c.get("/?code="+code, follow_redirects=False).headers["location"] == "/?login_error=browser"
 
 
+def test_static_cdn_callback_uses_server_exchange_and_same_browser_proof(auth_app):
+    c, provider, _ = auth_app
+    c.post("/api/auth/send-code", json={"email": "alice@example.test"})
+    code = next(iter(provider.pkce_flows))
+    with TestClient(main.app) as other:
+        assert other.post("/api/auth/exchange", json={"code": code}).status_code == 400
+    response = c.post("/api/auth/exchange", json={"code": code})
+    assert response.status_code == 200 and response.json()["user"]["id"] == ALICE
+    assert set(response.json()) == {"user"} and PKCE_COOKIE not in c.cookies
+    assert c.get("/api/auth/session").json()["user"]["id"] == ALICE
+
+
 def test_ownership_before_clock_and_private_results(auth_app):
     c, _, _ = auth_app
     login(c)

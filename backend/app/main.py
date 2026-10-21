@@ -162,6 +162,10 @@ class EmailCode(EmailLogin):
     code: str = Field(pattern=r"^[0-9]{6,10}$")
 
 
+class LinkCode(Strict):
+    code: str = Field(min_length=16, max_length=256, pattern=r"^[A-Za-z0-9._~-]+$")
+
+
 class NewGame(Strict):
     previous_id: uuid.UUID | None = None
 
@@ -400,6 +404,21 @@ def verify_code(body: EmailCode, request: Request):
     set_auth_cookies(response, tokens, IS_CLOUD or request.url.scheme == "https")
     if request.cookies.get(PKCE_COOKIE):
         clear_pkce_cookie(response, IS_CLOUD or request.url.scheme == "https")
+    return response
+
+
+@app.post("/api/auth/exchange")
+def exchange_link(body: LinkCode, request: Request):
+    try:
+        user, tokens = auth_service.exchange(body.code, request.cookies.get(PKCE_COOKIE))
+    except HTTPException as exc:
+        if exc.status_code == 401:
+            raise HTTPException(400, "로그인 링크가 만료됐거나 이미 사용됐습니다. 최신 메일을 다시 받아 주세요.") from None
+        raise
+    response = JSONResponse({"user": {"id": user.id, "email": user.email}})
+    secure = IS_CLOUD or request.url.scheme == "https"
+    set_auth_cookies(response, tokens, secure)
+    clear_pkce_cookie(response, secure)
     return response
 
 
