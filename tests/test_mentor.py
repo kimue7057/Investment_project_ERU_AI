@@ -48,6 +48,8 @@ def test_builtin_guard_context_cannot_propose_custom_conditions(game):
     result=answer(risk_rules=[{'metric':'asset_loss','asset':'held','threshold':8,'enabled':True}])
     with pytest.raises(ValueError,match='중단'):
         mentor.validate_answer(result,context)
+    game['choices']=[{'action':'default_guard'}]
+    assert '이전에 설정한 사용자 조건' in mentor.context_for(game,'A',PLAN)['facts']['risk_policy']
 
 
 def test_openrouter_context_history_and_no_trade(game, monkeypatch):
