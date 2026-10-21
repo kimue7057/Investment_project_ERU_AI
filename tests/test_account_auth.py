@@ -2,8 +2,11 @@
 import base64
 import copy
 import json
+import hashlib
+import secrets
 import sqlite3
 import time
+import uuid
 from datetime import timedelta
 
 import httpx
@@ -11,7 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.app import main
-from backend.app.account_auth import AccountAuth, ACCESS_COOKIE, REFRESH_COOKIE
+from backend.app.account_auth import AccountAuth, ACCESS_COOKIE, REFRESH_COOKIE, PKCE_COOKIE
 from backend.app.supabase_store import SupabaseREST, SupabaseSessions
 from backend.app.blob_store import StorageConflict
 from backend.app.engine import Engine, fresh
@@ -31,6 +34,7 @@ class AuthProvider:
         self.tokens = {}
         self.refreshes = {}
         self.calls = []
+        self.pkce_flows = {}
 
     def issue(self, email):
         token = jwt(email+str(len(self.tokens)))
@@ -48,12 +52,22 @@ class AuthProvider:
         assert request.headers["apikey"] == "sb_secret_test"
         if path.endswith("/otp"):
             assert body["create_user"] is True
+            assert body["code_challenge_method"] == "s256"
+            assert request.url.params["redirect_to"].startswith(("http://testserver/", "https://testserver/", "http://127.0.0.1:8000/"))
+            self.pkce_flows[str(uuid.uuid4())] = {"email": body["email"], "challenge": body["code_challenge"]}
             return httpx.Response(200, json={})
         if path.endswith("/verify"):
             if body["token"] != "123456":
                 return httpx.Response(403, json={"code": "otp_expired", "message": "PRIVATE provider text"})
             return httpx.Response(200, json=self.issue(body["email"]))
         if path.endswith("/token"):
+            if request.url.params.get("grant_type") == "pkce":
+                flow = self.pkce_flows.get(body.get("auth_code"))
+                challenge = base64.urlsafe_b64encode(hashlib.sha256(body["code_verifier"].encode()).digest()).decode().rstrip("=")
+                if not flow or not secrets.compare_digest(flow["challenge"], challenge):
+                    return httpx.Response(401, json={"code": "bad_code_verifier"})
+                self.pkce_flows.pop(body["auth_code"])
+                return httpx.Response(200, json=self.issue(flow["email"]))
             email = self.refreshes.pop(body.get("refresh_token"), None)
             return httpx.Response(200, json=self.issue(email)) if email else httpx.Response(401, json={"code": "invalid_token"})
         token = request.headers.get("authorization", "").removeprefix("Bearer ")
@@ -110,10 +124,46 @@ def test_email_code_cookie_login_and_no_token_in_body(auth_app):
     assert r.json()["user"]["id"] == ALICE
     assert set(r.json()) == {"user"}
     cookies = r.headers.get_list("set-cookie")
-    assert len(cookies) == 2 and all("HttpOnly" in s and "SameSite=lax" in s for s in cookies)
+    assert len(cookies) == 3 and all("HttpOnly" in s and "SameSite=lax" in s for s in cookies)
+    assert PKCE_COOKIE not in c.cookies  # OTP 로그인도 완료하면 대기 중인 링크 검증값을 제거한다.
     assert c.get("/api/auth/session").json()["user"]["email"] == "alice@example.test"
     assert len([p for p in provider.calls if p.endswith("/user")]) == 1
     assert "PRIVATE" not in c.post("/api/auth/verify", json={"email": "alice@example.test", "code": "000000"}).text
+
+
+def test_magic_link_pkce_callback_signs_in_and_cleans_the_url(auth_app):
+    c, provider, _ = auth_app
+    response = c.post("/api/auth/send-code", json={"email": "alice@example.test"})
+    assert response.status_code == 200
+    assert "HttpOnly" in response.headers["set-cookie"] and PKCE_COOKIE in c.cookies
+    verifier = c.cookies.get(PKCE_COOKIE)
+    # 메일 화면에서 돌아왔을 때 로그인 상태 조회가 진행 중인 검증값을 지우지 않는다.
+    assert c.get("/api/auth/session").json()["user"] is None
+    assert c.cookies.get(PKCE_COOKIE) == verifier
+    code = next(iter(provider.pkce_flows))
+    callback = c.get("/?code="+code, follow_redirects=False)
+    assert callback.status_code == 303 and callback.headers["location"] == "/"
+    assert callback.headers["cache-control"] == "no-store" and callback.headers["referrer-policy"] == "no-referrer"
+    assert PKCE_COOKIE not in c.cookies
+    assert c.get("/api/auth/session").json()["user"]["id"] == ALICE
+    assert "access_token" not in callback.headers["location"]
+    assert c.post("/api/guided-sessions", json={}).status_code == 200
+
+
+def test_magic_link_needs_matching_browser_and_latest_proof(auth_app):
+    c, provider, _ = auth_app
+    c.post("/api/auth/send-code", json={"email": "alice@example.test"})
+    code = next(iter(provider.pkce_flows))
+    with TestClient(main.app) as other:
+        missing = other.get("/?code="+code, follow_redirects=False)
+        assert missing.headers["location"] == "/?login_error=browser"
+        assert not any(k in other.cookies for k in (ACCESS_COOKIE, REFRESH_COOKIE))
+        other.cookies.set(PKCE_COOKIE, secrets.token_urlsafe(48))
+        mismatch = other.get("/?code="+code, follow_redirects=False)
+        assert mismatch.headers["location"] == "/?login_error=expired"
+        assert other.get("/api/auth/session").json()["user"] is None
+    assert c.get("/?code="+code, follow_redirects=False).headers["location"] == "/"
+    assert c.get("/?code="+code, follow_redirects=False).headers["location"] == "/?login_error=browser"
 
 
 def test_ownership_before_clock_and_private_results(auth_app):

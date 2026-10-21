@@ -1,23 +1,26 @@
 import {lazy,Suspense,useEffect,useRef,useState} from 'react';
 import {accountApi} from './client';
+import {loginReturn} from './loginReturn';
 import {money,pct,date,type GuidedGame} from './model';
 import './account.css';
 const InvestmentGame=lazy(()=>import('./InvestmentGame'));
 type User={id:string;email:string};
 type GameSummary={id:string;status:GuidedGame['status'];created_at:number|null;now:string;elapsed:number;nav:number;return_pct:number;trade_count:number;initial_plan:Record<string,string>|null};
 type GameList={games:GameSummary[];next_offset:number|null};
+const authNotice=()=>localStorage.setItem('eru-auth-notice',crypto.randomUUID());
 const statusLabel={ready:'계획 작성 중',running:'진행 중',paused:'잠시 멈춤',finished:'투자 완료'};
 
-function Login({configured,onLogin}:{configured:boolean;onLogin:(user:User)=>void}){
- const [email,setEmail]=useState(''),[code,setCode]=useState(''),[sent,setSent]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[remaining,setRemaining]=useState(0);
+function Login({configured,onLogin,initialMessage}:{configured:boolean;onLogin:(user:User)=>void;initialMessage:string}){
+ const [email,setEmail]=useState(''),[code,setCode]=useState(''),[sent,setSent]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(initialMessage),[remaining,setRemaining]=useState(0);
  const codeInput=useRef<HTMLInputElement>(null);
+ useEffect(()=>{setError(initialMessage);},[initialMessage]);
  useEffect(()=>{if(!remaining)return;const timer=setTimeout(()=>setRemaining(n=>Math.max(0,n-1)),1000);return()=>clearTimeout(timer);},[remaining]);
  useEffect(()=>{if(sent)codeInput.current?.focus();},[sent]);
  async function send(){if(busy)return;setBusy(true);setError('');try{const r=await accountApi<{retry_after:number}>('/auth/send-code',{email:email.trim()});setEmail(email.trim().toLowerCase());setSent(true);setCode('');setRemaining(r.retry_after);}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
  async function verify(){if(busy)return;setBusy(true);setError('');try{const r=await accountApi<{user:User}>('/auth/verify',{email,code});onLogin(r.user);}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
- return <div className="account-shell"><header className="account-header"><span className="brand">ERU <span>AI 동행 투자</span></span></header><main className="account-login-layout"><section className="account-intro"><span className="eyebrow">YOUR INVESTMENT JOURNEY</span><h1>나의 투자 경험을<br/>하나의 계정에.</h1><p>직접 계획하고, 판단하고, 결과를 돌아보세요.<br/>매매부터 AI와의 대화까지 내 계정에 차곡차곡 남아요.</p><div className="account-preview"><span>01 · 나만의 포트폴리오</span><span>02 · 실제 시세로 5분 투자</span><span>03 · 선택과 손익을 복기</span></div></section><section className="panel account-login"><span className="eyebrow">WELCOME TO ERU</span><h2>{sent?'인증번호를 입력해 주세요':'이메일로 시작하기'}</h2><p>{sent?`${email}로 보낸 최신 인증번호를 입력해 주세요.`:'비밀번호 없이 이메일 인증으로 로그인해요. 처음 사용하는 이메일이면 계정이 만들어져요.'}</p>{!configured&&<p className="account-error" role="alert">이메일 인증 연결을 준비하고 있어요. 잠시 후 다시 접속해 주세요.</p>}
- <form onSubmit={e=>{e.preventDefault();void(sent?verify():send());}}>{!sent?<label>이메일<input type="email" autoComplete="email" required maxLength={254} value={email} onChange={e=>setEmail(e.target.value)} placeholder="name@example.com" disabled={busy||!configured}/></label>:<label>인증번호<input ref={codeInput} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6,10}" minLength={6} maxLength={10} required value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,''))} placeholder="인증번호 입력" disabled={busy}/></label>}{error&&<p className="account-error" role="alert">{error}</p>}<button className="btn primary wide" disabled={busy||!configured}>{busy?'처리 중…':sent?'인증하고 내 기록 열기':'인증번호 받기'}</button></form>
- {sent&&<div className="account-code-actions"><button disabled={busy||remaining>0} onClick={()=>void send()}>{remaining>0?`${remaining}초 후 다시 받기`:'인증번호 다시 받기'}</button><button disabled={busy} onClick={()=>{setSent(false);setCode('');setError('');}}>다른 이메일 사용</button><small>메일이 안 보이면 스팸함도 확인해 주세요.</small></div>}<div className="account-login-note">인증 후 시작한 모든 투자 기록은 이 계정에 자동 보관해요.<br/>다른 기기에서도 같은 이메일로 이어서 확인할 수 있어요.</div></section></main></div>;
+ return <div className="account-shell"><header className="account-header"><span className="brand">ERU <span>AI 동행 투자</span></span></header><main className="account-login-layout"><section className="account-intro"><span className="eyebrow">YOUR INVESTMENT JOURNEY</span><h1>나의 투자 경험을<br/>하나의 계정에.</h1><p>직접 계획하고, 판단하고, 결과를 돌아보세요.<br/>매매부터 AI와의 대화까지 내 계정에 차곡차곡 남아요.</p><div className="account-preview"><span>01 · 나만의 포트폴리오</span><span>02 · 실제 시세로 5분 투자</span><span>03 · 선택과 손익을 복기</span></div></section><section className="panel account-login"><span className="eyebrow">WELCOME TO ERU</span><h2>{sent?'이메일을 확인해 주세요':'이메일로 시작하기'}</h2><p>{sent?`${email}로 보낸 최신 메일을 확인해 주세요. 로그인 링크를 누르거나 인증번호를 입력하면 돼요.`:'비밀번호 없이 이메일 인증으로 로그인해요. 처음 사용하는 이메일이면 계정이 만들어져요.'}</p>{!configured&&<p className="account-error" role="alert">이메일 인증 연결을 준비하고 있어요. 잠시 후 다시 접속해 주세요.</p>}
+ <form onSubmit={e=>{e.preventDefault();void(sent?verify():send());}}>{!sent?<label>이메일<input type="email" autoComplete="email" required maxLength={254} value={email} onChange={e=>setEmail(e.target.value)} placeholder="name@example.com" disabled={busy||!configured}/></label>:<label>인증번호<input ref={codeInput} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6,10}" minLength={6} maxLength={10} required value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,''))} placeholder="인증번호 입력" disabled={busy}/></label>}{error&&<p className="account-error" role="alert">{error}</p>}<button className="btn primary wide" disabled={busy||!configured}>{busy?'처리 중…':sent?'인증하고 내 기록 열기':'인증메일 받기'}</button></form>
+ {sent&&<div className="account-code-actions"><button disabled={busy||remaining>0} onClick={()=>void send()}>{remaining>0?`${remaining}초 후 다시 받기`:'인증메일 다시 받기'}</button><button disabled={busy} onClick={()=>{setSent(false);setCode('');setError('');}}>다른 이메일 사용</button><small>메일 링크는 인증을 요청한 브라우저에서 열어 주세요. 메일이 안 보이면 스팸함도 확인해 주세요.</small></div>}<div className="account-login-note">인증 후 시작한 모든 투자 기록은 이 계정에 자동 보관해요.<br/>다른 기기에서도 같은 이메일로 이어서 확인할 수 있어요.</div></section></main></div>;
 }
 
 function Dashboard({user,onOpen,onNew,onLogout,busy}:{user:User;onOpen:(id:string)=>void;onNew:()=>void;onLogout:()=>void;busy:boolean}){
@@ -34,15 +37,20 @@ function Dashboard({user,onOpen,onNew,onLogout,busy}:{user:User;onOpen:(id:strin
 }
 
 export default function App(){
+ const [returned,setReturned]=useState(()=>loginReturn(location.href));
+ useEffect(()=>{const clean=()=>{const next=loginReturn(location.href);history.replaceState(null,'',next.href);if(next.message)setReturned(next);};window.addEventListener('hashchange',clean);return()=>window.removeEventListener('hashchange',clean);},[]);
+ useEffect(()=>{history.replaceState(null,'',returned.href);},[returned.href]);
  const [user,setUser]=useState<User|null|undefined>(undefined),[configured,setConfigured]=useState(true),[gameId,setGameId]=useState<string|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[retry,setRetry]=useState(0);
- useEffect(()=>{const controller=new AbortController();accountApi<{configured:boolean;user:User|null}>('/auth/session',undefined,controller.signal).then(r=>{setConfigured(r.configured);setUser(r.user);if(r.user){const url=new URL(location.href),fresh=url.searchParams.get('setup')==='1';if(!fresh)setGameId(sessionStorage.getItem('eru-account-game:'+r.user.id));else{url.searchParams.delete('setup');history.replaceState(null,'',url.pathname+url.search+url.hash);}}}).catch(e=>{if(!controller.signal.aborted)setError((e as Error).message);});return()=>controller.abort();},[retry]);
+ useEffect(()=>{const controller=new AbortController();accountApi<{configured:boolean;user:User|null}>('/auth/session',undefined,controller.signal).then(r=>{setConfigured(r.configured);setUser(r.user);if(r.user&&retry===0)authNotice();if(r.user){const url=new URL(location.href),fresh=url.searchParams.get('setup')==='1';if(!fresh)setGameId(sessionStorage.getItem('eru-account-game:'+r.user.id));else{url.searchParams.delete('setup');history.replaceState(null,'',url.pathname+url.search+url.hash);}}}).catch(e=>{if(!controller.signal.aborted)setError((e as Error).message);});return()=>controller.abort();},[retry]);
  useEffect(()=>{const expired=()=>{setUser(null);setGameId(null);setError('');};window.addEventListener('eru-auth-expired',expired);return()=>window.removeEventListener('eru-auth-expired',expired);},[]);
+ useEffect(()=>{const refresh=()=>{if(!document.hidden&&user===null)setRetry(n=>n+1);};document.addEventListener('visibilitychange',refresh);return()=>document.removeEventListener('visibilitychange',refresh);},[user]);
+ useEffect(()=>{const changed=(e:StorageEvent)=>{if(e.key==='eru-auth-notice')setRetry(n=>n+1);};window.addEventListener('storage',changed);return()=>window.removeEventListener('storage',changed);},[]);
  function open(id:string){if(!user)return;setError('');sessionStorage.setItem('eru-account-game:'+user.id,id);setGameId(id);}
  async function home(){if(gameId)try{await accountApi('/sessions/'+gameId+'/leave',{});}catch(e){if((e as {status?:number}).status!==404)throw e;}if(user)sessionStorage.removeItem('eru-account-game:'+user.id);setGameId(null);}
- async function logout(){await accountApi('/auth/logout',{...(gameId?{session_id:gameId}:{})});if(user)sessionStorage.removeItem('eru-account-game:'+user.id);setUser(null);setGameId(null);}
+ async function logout(){await accountApi('/auth/logout',{...(gameId?{session_id:gameId}:{})});if(user)sessionStorage.removeItem('eru-account-game:'+user.id);setUser(null);setGameId(null);authNotice();}
  async function newGame(){const g=await accountApi<GuidedGame>('/guided-sessions',{...(gameId?{previous_id:gameId}:{})});open(g.id);}
  async function run(action:()=>Promise<void>){if(busy)return;setBusy(true);setError('');try{await action();}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
  if(user===undefined)return <main><section className="panel"><h1>{error?'연결을 확인해 주세요':'이메일 로그인 상태를 확인하고 있어요'}</h1>{error&&<><p role="alert">{error}</p><button className="btn primary" onClick={()=>{setError('');setRetry(n=>n+1);}}>다시 연결</button></>}</section></main>;
- if(!user)return <Login configured={configured} onLogin={u=>{setError('');setUser(u);setGameId(null);}}/>;
+ if(!user)return <Login initialMessage={returned.message} configured={configured} onLogin={u=>{setError('');setUser(u);setGameId(null);authNotice();}}/>;
  return <>{error&&<div className="message error account-global-error" role="alert">{error}<button aria-label="오류 닫기" onClick={()=>setError('')}>×</button></div>}{gameId?<Suspense fallback={<main><section className="panel">내 투자 기록을 열고 있어요…</section></main>}><InvestmentGame key={user.id+gameId} sessionId={gameId} email={user.email} onHome={home} onLogout={logout} onNew={newGame}/></Suspense>:<Dashboard user={user} onOpen={open} onNew={()=>void run(newGame)} onLogout={()=>void run(logout)} busy={busy}/>}</>;
 }

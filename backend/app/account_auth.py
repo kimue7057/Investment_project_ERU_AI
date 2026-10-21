@@ -3,12 +3,15 @@ import base64
 import hashlib
 import json
 import os
+import re
+import secrets
 import threading
 import time
 import uuid
 from collections import OrderedDict
 from contextvars import ContextVar
 from dataclasses import dataclass
+from urllib.parse import urlencode
 
 import httpx
 from fastapi import HTTPException
@@ -17,6 +20,7 @@ from .supabase_store import SupabaseREST
 
 ACCESS_COOKIE = "eru_access"
 REFRESH_COOKIE = "eru_refresh"
+PKCE_COOKIE = "eru_pkce"
 current_account = ContextVar("eru_account", default=None)
 
 
@@ -150,8 +154,21 @@ class AccountAuth:
         if not isinstance(tokens, dict) or not all(isinstance(tokens.get(k), str) and tokens[k] for k in ("access_token", "refresh_token")):
             raise HTTPException(503, "로그인 세션을 확인하지 못했습니다.")
 
-    def send(self, email):
-        self.request("otp", {"email": email, "create_user": True})
+    def send(self, email, redirect_to):
+        verifier = secrets.token_urlsafe(48)
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
+        self.request("otp?"+urlencode({"redirect_to": redirect_to}), {
+            "email": email, "create_user": True, "code_challenge": challenge, "code_challenge_method": "s256"})
+        return verifier
+
+    def exchange(self, code, verifier):
+        if not verifier or not re.fullmatch(r"[A-Za-z0-9._~-]{43,128}", verifier):
+            raise HTTPException(400, "인증을 요청한 브라우저에서 최신 링크를 열어 주세요.")
+        if not code or not re.fullmatch(r"[A-Za-z0-9._~-]{16,256}", code):
+            raise HTTPException(400, "유효한 최신 로그인 링크를 사용해 주세요.")
+        tokens = self.request("token?grant_type=pkce", {"auth_code": code, "code_verifier": verifier})
+        self.validate_tokens(tokens)
+        return self.user(tokens["access_token"]), tokens
 
     def verify(self, email, code):
         tokens = self.request("verify", {"email": email, "token": code, "type": "email"})
@@ -190,3 +207,11 @@ def set_auth_cookies(response, tokens, secure):
 def clear_auth_cookies(response, secure):
     for name in (ACCESS_COOKIE, REFRESH_COOKIE):
         response.delete_cookie(name, httponly=True, secure=secure, samesite="lax", path="/")
+
+
+def set_pkce_cookie(response, verifier, secure):
+    response.set_cookie(PKCE_COOKIE, verifier, max_age=900, httponly=True, secure=secure, samesite="lax", path="/")
+
+
+def clear_pkce_cookie(response, secure):
+    response.delete_cookie(PKCE_COOKIE, httponly=True, secure=secure, samesite="lax", path="/")

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -22,7 +22,7 @@ from .mentor import discuss
 from .risk_policy import validate_rules, retire_custom_rules
 from .investment_review import build_review, create_recap
 from .account_auth import (AccountAuth, account, authorize_game, current_account,
-                           set_auth_cookies, clear_auth_cookies)
+                           set_auth_cookies, clear_auth_cookies, PKCE_COOKIE, set_pkce_cookie, clear_pkce_cookie)
 
 app = FastAPI(title="ERU AI Alpha V1", docs_url=None, redoc_url=None, openapi_url=None)
 lock = threading.RLock()
@@ -101,6 +101,18 @@ async def local_boundary(request: Request, call_next):
         origins.add("https://" + host)
     if origin and origin not in origins:
         return JSONResponse({"detail": "동일 웹사이트에서 접속하세요."}, status_code=403)
+    if request.method == "GET" and request.url.path == "/" and "code" in request.query_params:
+        secure = IS_CLOUD or request.url.scheme == "https"
+        try:
+            _, tokens = auth_service.exchange(request.query_params.get("code"), request.cookies.get(PKCE_COOKIE))
+            response = RedirectResponse("/", status_code=303)
+            set_auth_cookies(response, tokens, secure)
+            clear_pkce_cookie(response, secure)
+        except HTTPException as exc:
+            reason = "browser" if not request.cookies.get(PKCE_COOKIE) else "service" if exc.status_code >= 500 else "expired"
+            response = RedirectResponse("/?login_error="+reason, status_code=303)
+        response.headers.update({"Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff"})
+        return response
     identity, refreshed = None, None
     path = request.url.path
     protected = path in ("/api/sessions", "/api/paper-sessions", "/api/guided-sessions") or path.startswith(("/api/sessions/", "/api/account/"))
@@ -374,9 +386,11 @@ def auth_session():
 
 
 @app.post("/api/auth/send-code")
-def send_code(body: EmailLogin):
-    auth_service.send(body.email)
-    return {"sent": True, "retry_after": 60}
+def send_code(body: EmailLogin, request: Request):
+    verifier = auth_service.send(body.email, str(request.base_url))
+    response = JSONResponse({"sent": True, "retry_after": 60})
+    set_pkce_cookie(response, verifier, IS_CLOUD or request.url.scheme == "https")
+    return response
 
 
 @app.post("/api/auth/verify")
@@ -384,6 +398,8 @@ def verify_code(body: EmailCode, request: Request):
     user, tokens = auth_service.verify(body.email, body.code)
     response = JSONResponse({"user": {"id": user.id, "email": user.email}})
     set_auth_cookies(response, tokens, IS_CLOUD or request.url.scheme == "https")
+    if request.cookies.get(PKCE_COOKIE):
+        clear_pkce_cookie(response, IS_CLOUD or request.url.scheme == "https")
     return response
 
 
@@ -397,6 +413,7 @@ def sign_out(request: Request, body: SignOut | None = None):
     auth_service.logout(request, request.state.refreshed_tokens)
     response = JSONResponse({"signed_out": True})
     clear_auth_cookies(response, IS_CLOUD or request.url.scheme == "https")
+    clear_pkce_cookie(response, IS_CLOUD or request.url.scheme == "https")
     return response
 
 
