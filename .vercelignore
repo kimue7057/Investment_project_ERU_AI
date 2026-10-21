@@ -13,4 +13,5 @@ docs
 data/raw
 data/normalized
 data/runtime
+supabase/.temp
 data/metadata/*PRIVATE*
