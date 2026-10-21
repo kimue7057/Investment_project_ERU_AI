@@ -87,6 +87,8 @@ class AccountAuth:
             raise HTTPException(503, "인증메일 발송 서비스 설정을 확인해 주세요.")
         if response.status_code == 429 or code in ("over_email_send_rate_limit", "over_request_rate_limit"):
             raise HTTPException(429, "인증 요청이 많습니다. 잠시 후 다시 시도해 주세요.")
+        if response.status_code >= 500:
+            raise HTTPException(503, "이메일 인증 서비스가 일시적으로 응답하지 않습니다. 잠시 후 다시 시도해 주세요.")
         if path == "verify":
             raise HTTPException(400, "인증번호가 올바르지 않거나 만료됐습니다. 최신 메일을 확인해 주세요.")
         if path == "user" or path.startswith("token"):

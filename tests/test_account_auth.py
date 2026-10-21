@@ -218,6 +218,18 @@ def test_auth_origin_validation_and_secure_cookies(auth_app):
         assert all("Secure" in s for s in response.headers.get_list("set-cookie"))
 
 
+def test_provider_outage_is_not_treated_as_a_bad_code_or_expired_login(auth_app):
+    c, provider, service = auth_app
+    tokens = provider.issue("alice@example.test")
+    c.cookies.set(ACCESS_COOKIE, tokens["access_token"])
+    service.rest.client = httpx.Client(transport=httpx.MockTransport(lambda req: httpx.Response(503, json={"message": "PRIVATE provider text"})))
+    for method, path, body in [("GET", "/api/auth/session", None),
+                               ("POST", "/api/auth/verify", {"email": "alice@example.test", "code": "123456"})]:
+        response = c.request(method, path, json=body)
+        assert response.status_code == 503 and "PRIVATE" not in response.text
+    assert c.cookies.get(ACCESS_COOKIE) == tokens["access_token"]
+
+
 class OwnedCloud(SupabaseSessions):
     def __init__(self):
         self.records = {}
