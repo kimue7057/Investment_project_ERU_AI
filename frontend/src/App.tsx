@@ -59,8 +59,8 @@ export default function App() {
       const freshSetup = new URLSearchParams(location.search).get('setup') === '1';
       if (id && !freshSetup) {try {const g = await api('/sessions/' + id); if (g.mode === 'guided') return g;} catch(e) {if ((e as {status?:number}).status !== 404) throw e;}}
       const g = await api('/guided-sessions',{});
+      if (id) localStorage.setItem('eru-guided-previous-session',id);
       if (freshSetup) {
-        if (id) localStorage.setItem('eru-guided-previous-session',id);
         localStorage.removeItem('eru-guided-draft'); setDraft(DEFAULT);
         const url = new URL(location.href); url.searchParams.delete('setup');
         history.replaceState(null,'',url.pathname+url.search+url.hash);

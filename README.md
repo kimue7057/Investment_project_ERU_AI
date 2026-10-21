@@ -34,6 +34,7 @@
 | 최신 초기 설정 | [성향·코인·비율 직접 선택과 AI 조건 제안](docs/직접선택_초기설정.md) |
 | 이자 모델과 원본 근거 | [금리 적용 정책](docs/AI_동행투자_V3_구현.md#대기-자금-이자) |
 | 배포 구조 | [Vercel 운영 안내](docs/Vercel_배포.md) |
+| 저장소 전환·연결 장애 | [Supabase 이전 및 검증 상태](docs/저장소_연결장애_2026-10-21.md) |
 | GitHub | [프로젝트 저장소](https://github.com/kimue7057/Investment_project_ERU_AI) |
 
 사용자 요청에 따라 Figma 작업을 생략하고 앱에서 바로 확인할 수 있도록 구현했습니다. 이전 Alpha V1·V2 문서는 기록으로 보존합니다.

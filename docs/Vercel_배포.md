@@ -1,5 +1,17 @@
 # Vercel 온라인 Alpha 배포 · 2026-10-19
 
+## 2026-10-21 저장소 전환
+
+사용자가 지정한 KIMUE_PRIVATE의 기존 `Debate project`를 `eru-ai-investment-simulator`로 변경해 재사용한다. 새 유료 프로젝트를 생성하지 않았다. 기존 토론 테이블 4개·함수 2개와 관리자 계정은 Git에서 제외한 로컬 백업을 저장한 후 정리했다. Supabase 관리 스키마는 유지한다.
+
+운영 환경은 `ERU_STORAGE_BACKEND=supabase`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY`를 사용한다. Secret key는 Vercel Production의 Secret으로만 등록한다. 키를 로컬로 내려받거나 Git·브라우저에 포함하지 않는다. 로컬 기본 실행은 SQLite다.
+
+전용 테이블은 `eru_game_sessions`, `eru_market_bundles`다. 두 테이블 모두 RLS를 켜고 anon/authenticated 권한을 제거해 서버만 접근한다. 세션은 environment와 UUID로 구분하고 revision 비교를 포함한 원자적 UPDATE로 수정 충돌을 처리한다. 예전 Blob 세션은 정지된 저장소에 보존하며, 접근이 복구되기 전에는 이관됐다고 보지 않는다. 브라우저에서 찾지 못한 이전 게임 ID는 별도 키에 남기고 새 게임을 생성한다.
+
+시세 빌드 원본도 Supabase의 비공개 테이블에 보관한다. 최초 이전 배포는 로컬의 검증된 CSV 4개만 비공개 배포 소스로 포함해 압축 원본을 저장한다. 이후 빌드는 DB에서 읽는다. ZIP 체크섬과 Git에서 관리하는 자산별 CSV SHA256를 모두 검사하며, 불일치 시 로컬 CSV나 Blob으로 우회하지 않고 빌드를 중단한다. CSV는 Git과 정적 프론트엔드에 포함하지 않는다. 최초 배포 이후 `.vercelignore`의 `data/normalized` 제외를 복구한다.
+
+준비·정지·종료 화면은 반복 조회하지 않고 실행 중에만 순차 조회한다. 3회 연속 오류 후 자동 조회를 중단하고 수동 재연결을 제공한다. health는 실제 저장소 읽기를 확인하고 실패하면 503을 반환한다. 상세 상태와 검증 기록은 [저장소 연결 장애 기록](저장소_연결장애_2026-10-21.md)을 참조한다. 아래 2026-10-19 Blob 구성과 테스트 결과는 초기 배포 기록이다.
+
 ## 접속 및 연결
 
 - 체험 주소: https://eru-ai-investment-simulator.vercel.app
@@ -11,7 +23,7 @@
 
 시작 화면과 health/catalog API에 인증 없이 HTTP 200으로 접속되는 것을 확인했습니다. health는 실제 데이터 및 비공개 저장소 준비 상태가 충족될 때 ready를 반환합니다. Vercel의 개별 Preview 주소에는 계정 인증 보호가 적용될 수 있으므로 외부 공유에는 위의 정식 체험 주소를 사용하세요.
 
-## 배포 구조
+## 초기 배포 구조 (2026-10-19 기록)
 
 기존 React/Vite와 Python/FastAPI 엔진을 유지합니다. index.py가 Python 진입점이며 pyproject.toml이 Python 3.12와 서버 의존성을 지정합니다. vercel.json은 프론트엔드 빌드, 데이터 포함 및 서울 리전(icn1)을 설정합니다. 정적 프론트엔드는 CDN에서, /api는 Python Function에서 제공합니다.
 
@@ -44,7 +56,7 @@ BLOB_READ_WRITE_TOKEN은 Vercel 환경변수에 있습니다. 로컬 .env.local�
 
 저장 상태가 커지면 CDN이 응답 ETag를 약한 형식으로 바꾸던 문제를 수정하고 실제 비공개 저장소로 재검증했습니다. 원본 읽기와 조건부 쓰기에 대한 회귀 테스트를 추가했으며 오류 로그에는 자격증명이나 비공개 URL을 기록하지 않습니다.
 
-## 다시 배포하기
+## 초기 Blob 배포 절차 (현재 운영에 사용하지 않음)
 
 일반 코드 변경은 검증 후 main에 푸시합니다. 수동 배포는 프로젝트 폴더에서 `vercel deploy --prod --scope eruty1`을 실행합니다. Vercel CLI는 이 PC의 로그인 정보를 사용합니다.
 

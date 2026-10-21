@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from .engine import Engine, fresh, weights
 from .market import Market, ROOT, START, CATALOG
 from .blob_store import BlobSessions, StorageConflict
+from .supabase_store import SupabaseSessions
 from .mentor import discuss
 from .risk_policy import validate_rules
 
@@ -47,7 +48,25 @@ def storage_message(exc):
         return "온라인 게임 저장소 접근이 차단되어 게임을 열 수 없습니다. 운영자의 저장소 상태 확인이 필요합니다."
     return "게임 저장소에 연결할 수 없습니다. 잠시 후 다시 시도하세요."
 IS_CLOUD = os.environ.get("VERCEL") == "1"
-cloud_store = BlobSessions() if IS_CLOUD and os.environ.get("BLOB_READ_WRITE_TOKEN") else None
+
+
+def configure_cloud_store():
+    if not IS_CLOUD:
+        return None
+    # Supabase 설정 중 일부만 있어도 다른 저장소로 조용히 전환하지 않는다.
+    if os.environ.get("ERU_STORAGE_BACKEND") == "supabase" or any(
+            os.environ.get(k) for k in ("SUPABASE_URL", "SUPABASE_SECRET_KEY")):
+        if not all(os.environ.get(k) for k in ("SUPABASE_URL", "SUPABASE_SECRET_KEY")):
+            return None
+        try:
+            return SupabaseSessions()
+        except ValueError:
+            log.warning("storage_configuration_invalid provider=supabase")
+            return None
+    return BlobSessions() if os.environ.get("BLOB_READ_WRITE_TOKEN") else None
+
+
+cloud_store = configure_cloud_store()
 db = None
 if not IS_CLOUD:
     db_path = Path(os.environ.get("ERU_DB_PATH", str(ROOT / "data/runtime/sessions.sqlite3")))
@@ -248,6 +267,7 @@ def update_cloud(sid, action, alias="A", read_only=False):
 @app.get("/api/health")
 def health():
     ready = data_ready and (not IS_CLOUD or cloud_store is not None)
+    storage_name = getattr(cloud_store, "storage_name", "private_blob") if IS_CLOUD else "sqlite"
     if ready and IS_CLOUD:
         if storage_health["store"] is not cloud_store or time.monotonic()-storage_health["checked"] >= 60:
             try:
@@ -256,9 +276,11 @@ def health():
             except Exception as exc:
                 storage_failure("probe", exc)
         if not storage_health["available"]:
-            return JSONResponse({"status":"storage_unavailable", "version":"AI 동행 투자 V3", "storage":"private_blob"}, status_code=503)
+            return JSONResponse({"status":"storage_unavailable", "version":"AI 동행 투자 V3", "storage":storage_name}, status_code=503)
+    if IS_CLOUD and cloud_store is None:
+        return JSONResponse({"status":"storage_required", "version":"AI 동행 투자 V3"}, status_code=503)
     return {"status": "ready" if ready else "data_required", "version": "AI 동행 투자 V3",
-            "storage": "private_blob" if IS_CLOUD else "sqlite"}
+            "storage": storage_name}
 
 
 @app.get("/api/catalog")
