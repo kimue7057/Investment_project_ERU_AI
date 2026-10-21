@@ -71,6 +71,24 @@ class Engine:
         if s["pending"]:
             raise ValueError("대기 주문이 있습니다. 취소하거나 시장을 재개해 체결하세요.")
 
+    def choice(self, s, action, **fields):
+        """승인 당시 사실만 저장한다. 체결은 여전히 다음 일봉 시가에 수행한다."""
+        choice = {"id": f"choice-{len(s['choices'])}", "at": s["now"], "action": action,
+                  "snapshot": {"nav": str(self.nav(s)), "cash": s["cash"],
+                               "interest": s.get("interest", "0"),
+                               "holdings": copy.deepcopy(s["holdings"])}, **fields}
+        used_chat_ids = {mid for c in s["choices"] for mid in c.get("chat_ids", [])}
+        previous = s["choices"][-1] if s["choices"] else None
+        choice["chat_ids"] = [c["id"] for c in s.get("chat", [])
+                              if c["id"] not in used_chat_ids and c["at"] <= s["now"]
+                              and (previous is None or c["at"] > previous["at"]
+                                   or (previous.get("id") and c["at"] == previous["at"]))]
+        if s.get("pending") and action not in ("hold", "ignore", "cancel"):
+            s["pending"]["decision_id"] = choice["id"]
+            choice["order"] = copy.deepcopy(s["pending"])
+        s["choices"].append(choice)
+        return choice
+
     def start(self, s, allocation, risk_rules=None):
         if s.get("mode") == "paper":
             raise ValueError("모의투자는 초기 비중 설정 없이 시작하세요.")
@@ -88,7 +106,7 @@ class Engine:
                         if s.get("mode") != "guided" or any(w[a] > 0 for a in ALIASES) else None)
         if s.get("mode") == "guided":
             s["initial_plan"] = s["targets"].copy()
-            s["choices"].append({"at": s["now"], "action": "start", "summary": "초기 구성과 대기 자금 이자 운용을 승인했습니다."})
+            self.choice(s, "start", summary="초기 구성과 대기 자금 이자 운용을 승인했습니다.")
             if not s["pending"]:
                 s["baseline"] = {"cash": s["cash"], "holdings": s["holdings"].copy()}
         s["status"] = "running"
@@ -166,6 +184,7 @@ class Engine:
         if not p or p["at"] != s["now"]:
             return
         prices = {a: self.market.open_price(a, self.now(s)) for a in ALIASES}
+        first_fill = len(s["trades"])
         if p["kind"] == "trade":
             self.trade(s, p["asset"], p["side"], prices[p["asset"]],
                        budget=D(p["budget"]) if p["budget"] is not None else None,
@@ -199,6 +218,9 @@ class Engine:
                     budget = min((target[a] - current[a]) * (1 + FEE), D(s["cash"]))
                     if budget > 0:
                         self.trade(s, a, "buy", prices[a], budget=budget, reason="rebalance")
+        if p.get("decision_id"):
+            for fill in s["trades"][first_fill:]:
+                fill["decision_id"] = p["decision_id"]
         s["pending"] = None
         assert D(s["cash"]) >= D("-0.000001"), "Ledger cash invariant"
 
@@ -307,8 +329,8 @@ class Engine:
                 raise ValueError("자료 알림에는 매매 제안이 없습니다.")
             self.order(s, alert["asset"], alert.get("side", "sell"), percent=percent if action == "modify" else alert["percent"])
         alert["decision"] = action
-        s["choices"].append({"alert_id": alert_id, "at": s["now"], "action": action,
-                             "percent": percent if action == "modify" else alert.get("percent")})
+        self.choice(s, action, alert_id=alert_id,
+                    percent=percent if action == "modify" else alert.get("percent"))
 
     def public(self, s, alias="A"):
         if alias not in ALIASES:
@@ -353,6 +375,8 @@ class Engine:
                            "initial_plan": copy.deepcopy(s["initial_plan"]), "chat": copy.deepcopy(s["chat"]),
                            "trading_profit": float(D(s["realized"])) + sum(h["unrealized"] for h in holdings)})
             public["trades"], public["asset_performance"] = journal(s["trades"], {a: self.market.quote(a, now) for a in ALIASES})
+            choice_fields = ("id", "at", "action", "summary", "alert_id", "percent", "cancelled")
+            public["choices"] = [{k: c[k] for k in choice_fields if k in c} for c in s["choices"]]
             # 기존 세션의 판단·대화도 화면에는 같은 가명을 사용한다. 저장 원문은 보존한다.
             for alert in public["alerts"]:
                 alert["title"] = display_names(alert["title"])

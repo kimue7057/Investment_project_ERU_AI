@@ -20,6 +20,7 @@ from .blob_store import BlobSessions, StorageConflict
 from .supabase_store import SupabaseSessions
 from .mentor import discuss
 from .risk_policy import validate_rules, retire_custom_rules
+from .investment_review import build_review, create_recap
 
 app = FastAPI(title="ERU AI Alpha V1", docs_url=None, redoc_url=None, openapi_url=None)
 lock = threading.RLock()
@@ -395,9 +396,13 @@ def cancel(sid: str):
     def action(s):
         if s["status"] != "paused" or not s["pending"] or (s["pending"]["kind"] == "initial" and s.get("mode") != "guided"):
             raise ValueError("취소할 수 있는 대기 주문이 없습니다.")
+        cancelled_id = s["pending"].get("decision_id")
+        for choice in s["choices"]:
+            if choice.get("id") == cancelled_id and cancelled_id is not None:
+                choice["cancelled"] = True
         s["pending"] = None
         if s.get("mode") == "guided":
-            s["choices"].append({"at": s["now"], "action": "cancel", "summary": "미체결 주문을 취소했습니다."})
+            engine.choice(s, "cancel", summary="미체결 주문을 취소했습니다.")
     return update(sid, action)
 
 
@@ -427,8 +432,7 @@ def approved_order(sid: str, body: ApprovedOrder):
             summary = "변경한 비중으로 매도 후 매수하는 주문을 승인했습니다."
         if alert:
             alert["decision"] = "hold" if body.kind == "hold" else "approved"
-        s["choices"].append({"at": s["now"], "action": body.kind, "alert_id": body.alert_id,
-                             "summary": summary})
+        engine.choice(s, body.kind, alert_id=body.alert_id, summary=summary)
         s["status"] = "running"
     return update(sid, action)
 
@@ -469,6 +473,49 @@ def chat(sid: str, body: Chat):
                         if setup and setup.get("phase") else {})
             s["chat"].append({"id": request_id, "at": s["now"], **reply, **metadata})
     return update(sid, finish, body.asset)
+
+
+def finished_snapshot(sid, action=None):
+    snapshot = {}
+    def capture(s):
+        if s.get("mode") != "guided" or s["status"] != "finished":
+            raise ValueError("투자 종료 후에 복기를 확인할 수 있습니다.")
+        if action:
+            action(s)
+        snapshot.clear()
+        snapshot.update(copy.deepcopy(s))
+    update(sid, capture, read_only=action is None)
+    return snapshot
+
+
+@app.get("/api/sessions/{sid}/review")
+def review(sid: str):
+    return build_review(finished_snapshot(sid), market)
+
+
+@app.post("/api/sessions/{sid}/review/recap")
+def review_recap(sid: str):
+    request_id = str(uuid.uuid4())
+    def begin(s):
+        if s.get("review_recap", {}).get("source") == "ai":
+            return
+        if time.time() < s.get("review_recap_pending_until", 0):
+            raise ValueError("복기를 정리 중입니다. 잠시 후 다시 확인하세요.")
+        if s.get("review_recap_count", 0) >= 3:
+            raise ValueError("이 게임의 복기 요청 3회를 모두 사용했습니다. 저장된 기록은 계속 확인할 수 있습니다.")
+        s["review_recap_count"] = s.get("review_recap_count", 0) + 1
+        s["review_recap_request"] = request_id
+        s["review_recap_pending_until"] = time.time() + 30
+    snapshot = finished_snapshot(sid, begin)
+    if snapshot.get("review_recap", {}).get("source") == "ai":
+        return snapshot["review_recap"]
+    reply = create_recap(build_review(snapshot, market))
+    def finish(s):
+        if s.get("review_recap_request") == request_id:
+            s["review_recap"] = reply
+            s["review_recap_pending_until"] = 0
+    final = finished_snapshot(sid, finish)
+    return final.get("review_recap", reply)
 
 
 dist = ROOT / "frontend/dist"
