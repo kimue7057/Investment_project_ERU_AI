@@ -67,6 +67,10 @@ class BlobSessions:
         body, etag = result
         return json.loads(body), etag
 
+    def probe(self):
+        # 존재하지 않아도 404면 저장소에 접근 가능하다. 검사로 객체를 쓰지 않는다.
+        self.blob.read("health/connection.json")
+
     def write(self, sid, state, wall_time, etag=None):
         payload = json.dumps({"state": state, "last_seen": wall_time}, separators=(",", ":")).encode()
         self.blob.put(self.path(sid), payload, etag=etag, overwrite=etag is not None)

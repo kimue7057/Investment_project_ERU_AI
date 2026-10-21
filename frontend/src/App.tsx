@@ -25,6 +25,7 @@ export default function App() {
   const [view,setView] = useState<View>('portfolio');
   const [selected,setSelected] = useState<Alias>('A'), [draft,setDraft] = useState<Allocation>(()=>{try {const saved = JSON.parse(localStorage.getItem('eru-guided-draft') || 'null'); if (saved && Object.keys(saved).length === 5 && validWeights(saved)) return saved;} catch {/* 초안 복구 */} return DEFAULT;});
   const [busy,setBusy] = useState(false), [error,setError] = useState(''), [notice,setNotice] = useState('');
+  const [connectionRetry,setConnectionRetry]=useState(0),[pollBlocked,setPollBlocked]=useState(false);
   const [startRules,setStartRules] = useState<RiskRule[]>([]);
   const [review,setReview] = useState<Approval|'start'|null>(null);
   const [decision,setDecision] = useState<'hold'|'trade'|'rebalance'>('hold');
@@ -70,15 +71,24 @@ export default function App() {
   },[]);
   useEffect(()=>{
     if (!game?.id) return; let stopped = false; const id = game.id;
+    let timer:ReturnType<typeof setTimeout>|undefined,failures=0;
+    const running=game.status==='running';
+    // 준비·정지·종료 중에는 자산 차트가 바뀔 때 한 번만 읽는다.
+    if(!running&&current.current?.chart_asset===selected)return;
+    setPollBlocked(false);
+    function schedule(delay:number){if(!stopped&&running)timer=setTimeout(()=>void poll(),delay);}
     const poll = async()=>{
-      if (inFlight.current || mutating.current || document.hidden) return;
+      if(stopped)return;
+      if (inFlight.current || mutating.current || document.hidden) {schedule(1300);return;}
       inFlight.current = true;
-      try {const g = await api('/sessions/' + id + '?asset=' + selected); if (!stopped && current.current?.id === id) {receive(g); setError(e=>e.startsWith('연결 확인 중:') ? '' : e);}}
-      catch(e) {if (!stopped) setError('연결 확인 중: ' + (e as Error).message);}
+      let delay:number|null=1300;
+      try {const g = await api('/sessions/' + id + '?asset=' + selected); if (!stopped && current.current?.id === id) {receive(g);failures=0;setPollBlocked(false);setError(e=>e.startsWith('연결 확인 중:') ? '' : e);if(g.status!=='running')delay=null;}}
+      catch(e) {if (!stopped) {failures++;delay=running&&failures<3?Math.min(30000,1300*2**failures):null;setPollBlocked(delay===null);setError('연결 확인 중: ' + (e as Error).message);}}
       finally {inFlight.current = false;}
+      if(delay!==null)schedule(delay);
     };
-    void poll(); const t = setInterval(poll,1300); return ()=>{stopped = true; clearInterval(t);};
-  },[game?.id,selected]);
+    void poll(); return ()=>{stopped = true;clearTimeout(timer);};
+  },[game?.id,game?.status,selected,connectionRetry]);
   useEffect(()=>{if (!notice) return; const t = setTimeout(()=>setNotice(''),10000); return ()=>clearTimeout(t);},[notice]);
   useEffect(()=>{localStorage.setItem('eru-guided-draft',JSON.stringify(draft));},[draft]);
   useEffect(()=>{const handler = (e:KeyboardEvent)=>{if (e.key === 'Escape' && !mutating.current) setReview(null);}; window.addEventListener('keydown',handler); return ()=>window.removeEventListener('keydown',handler);},[]);
@@ -149,9 +159,9 @@ export default function App() {
     <header className="topbar"><a className="brand" href="#" onClick={e=>{e.preventDefault();setView('portfolio');}}>ERU <span>AI 동행 투자</span></a><nav aria-label="주 메뉴">{([['portfolio','내 포트폴리오'],['assets','자산 살펴보기'],['records','판단 기록']] as const).map(([v,label])=><button key={v} className={view === v ? 'active':''} onClick={()=>setView(v)}>{label}</button>)}</nav><span className="virtual">과거 시장을 경험하는 5분</span></header>
     <div className="playbar"><span className={'play-state ' + game?.status}>{ready ? '투자 준비' : active ? '시장 진행 중' : finished ? '투자 종료' : '판단 시간 · 시장 정지'}</span><strong>{game ? date(game.now):'연결 중'}</strong><div className="timeline"><div><i style={{width:(game?.elapsed ?? 0)/3 + '%'}}/></div><small>2022.11.07 → 2026.08.05</small></div><span className="remaining">{clock(300 - (game?.elapsed ?? 0))}</span>{!ready && !finished && <button className="btn secondary" disabled={busy || !!alert} onClick={()=>void action(active ? 'pause':'resume')}>{active ? '잠시 멈추기' : pending ? '시장 재개하고 체결 보기':'시장 재개'}</button>}</div>
     <main>
-      {error && <div className="message error" role="alert"><span>{error}</span><button aria-label="오류 닫기" onClick={()=>setError('')}>×</button></div>}
+      {error && <div className="message error" role="alert"><span>{error}</span>{pollBlocked&&<button className="btn secondary" disabled={busy} onClick={()=>setConnectionRetry(n=>n+1)}>연결 다시 확인</button>}<button aria-label="오류 닫기" onClick={()=>setError('')}>×</button></div>}
       {notice && <div className="message success" role="status"><span>{notice}</span><button aria-label="알림 닫기" onClick={()=>setNotice('')}>×</button></div>}
-      {!game ? <section className="panel loading"><h1>투자 실험을 준비하고 있어요</h1>{error && <button className="btn primary" onClick={()=>location.reload()}>다시 연결</button>}</section> : <>
+      {!game ? <section className="panel loading"><h1>{error?'게임을 연결하지 못했어요':'투자 실험을 준비하고 있어요'}</h1>{error && <><p>위 오류 내용을 확인해 주세요. 기존 게임과 설정은 삭제하지 않았어요.</p><button className="btn primary" onClick={()=>location.reload()}>다시 연결</button></>}</section> : <>
       {ready && view !== 'records' && <PortfolioSetup key={game.id} sessionId={game.id} catalog={catalog} total={game.initial}
         annualRate={account!.annual_rate} policy={account!.policy} terms={account!.terms} busy={busy} messages={game.chat} onChange={setDraft}
         onReview={(w,rules)=>{setDraft(w);setStartRules(rules);setReview('start');}}

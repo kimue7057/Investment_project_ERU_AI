@@ -19,6 +19,9 @@ class MemoryCloud:
     def read(self, sid):
         return copy.deepcopy(self.records.get(sid))
 
+    def probe(self):
+        pass
+
     def write(self, sid, state, wall_time, etag=None):
         if self.fail_once:
             self.fail_once = False
@@ -185,3 +188,27 @@ def test_private_delivery_compression_cannot_break_compare_and_swap():
         return httpx.Response(200, content=b"{}", headers={"etag": 'W/"object-revision"'})
     b = PrivateBlob(token="vercel_blob_rw_testid_test", client=httpx.Client(transport=httpx.MockTransport(handler)))
     assert b.read("checks/large.json")[1] == '"object-revision"'
+
+
+def test_storage_suspension_is_unhealthy_and_create_is_safely_logged(cloud,monkeypatch,caplog):
+    c,store,_=cloud
+    def denied(*args,**kwargs):
+        raise httpx.HTTPStatusError('provider-private-details',request=httpx.Request('GET','https://private.invalid'),response=httpx.Response(403,text='private-token-and-url'))
+    monkeypatch.setattr(store,'probe',denied)
+    monkeypatch.setattr(store,'write',denied)
+    r=c.get('/api/health')
+    assert r.status_code==503 and r.json()['status']=='storage_unavailable'
+    r=c.post('/api/guided-sessions',json={})
+    assert r.status_code==503 and '차단' in r.json()['detail']
+    assert 'storage_create_failed' in caplog.text and 'private-token' not in caplog.text and 'private.invalid' not in caplog.text
+    assert 'private' not in r.json()['detail']
+
+
+def test_health_probe_cached_and_recovers_after_expiry(cloud,monkeypatch):
+    c,store,_=cloud;calls=[];clock=[100.0]
+    monkeypatch.setattr(main.time,'monotonic',lambda:clock[0])
+    monkeypatch.setattr(store,'probe',lambda:calls.append(1))
+    assert c.get('/api/health').status_code==200
+    assert c.get('/api/health').status_code==200 and len(calls)==1
+    clock[0]+=61
+    assert c.get('/api/health').status_code==200 and len(calls)==2

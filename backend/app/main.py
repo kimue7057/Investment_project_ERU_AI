@@ -24,6 +24,7 @@ app = FastAPI(title="ERU AI Alpha V1", docs_url=None, redoc_url=None, openapi_ur
 lock = threading.RLock()
 anchors = {}
 log = logging.getLogger("eru.cloud")
+storage_health = {"store": None, "checked": 0.0, "available": None}
 
 
 def storage_failure(operation, exc):
@@ -38,6 +39,13 @@ def storage_failure(operation, exc):
             pass
     log.warning("storage_%s_failed type=%s status=%s code=%s", operation, type(exc).__name__,
                 getattr(response, "status_code", None), code)
+    storage_health.update(store=cloud_store, checked=time.monotonic(), available=False)
+
+
+def storage_message(exc):
+    if getattr(getattr(exc, "response", None), "status_code", None) == 403:
+        return "온라인 게임 저장소 접근이 차단되어 게임을 열 수 없습니다. 운영자의 저장소 상태 확인이 필요합니다."
+    return "게임 저장소에 연결할 수 없습니다. 잠시 후 다시 시도하세요."
 IS_CLOUD = os.environ.get("VERCEL") == "1"
 cloud_store = BlobSessions() if IS_CLOUD and os.environ.get("BLOB_READ_WRITE_TOKEN") else None
 db = None
@@ -194,7 +202,7 @@ def update_cloud(sid, action, alias="A", read_only=False):
             result = None
         except Exception as exc:
             storage_failure("read", exc)
-            raise HTTPException(503, "게임 저장소에 연결할 수 없습니다. 잠시 후 다시 시도하세요.") from None
+            raise HTTPException(503, storage_message(exc)) from None
         if result is None:
             raise HTTPException(404, "게임을 찾을 수 없습니다. 새 게임을 시작하세요.")
         envelope, etag = result
@@ -240,6 +248,15 @@ def update_cloud(sid, action, alias="A", read_only=False):
 @app.get("/api/health")
 def health():
     ready = data_ready and (not IS_CLOUD or cloud_store is not None)
+    if ready and IS_CLOUD:
+        if storage_health["store"] is not cloud_store or time.monotonic()-storage_health["checked"] >= 60:
+            try:
+                cloud_store.probe()
+                storage_health.update(store=cloud_store, checked=time.monotonic(), available=True)
+            except Exception as exc:
+                storage_failure("probe", exc)
+        if not storage_health["available"]:
+            return JSONResponse({"status":"storage_unavailable", "version":"AI 동행 투자 V3", "storage":"private_blob"}, status_code=503)
     return {"status": "ready" if ready else "data_required", "version": "AI 동행 투자 V3",
             "storage": "private_blob" if IS_CLOUD else "sqlite"}
 
@@ -276,8 +293,9 @@ def create_session(paper, guided=False):
                 raise HTTPException(503, "게임 저장소를 준비 중입니다.")
             try:
                 cloud_store.write(sid, state, time.time())
-            except Exception:
-                raise HTTPException(503, "게임을 저장하지 못했습니다. 잠시 후 다시 시도하세요.") from None
+            except Exception as exc:
+                storage_failure("create", exc)
+                raise HTTPException(503, storage_message(exc)) from None
         else:
             save(sid, state)
             anchors[sid] = time.monotonic()
