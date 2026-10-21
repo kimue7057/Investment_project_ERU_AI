@@ -8,11 +8,24 @@ import pytest
 
 from backend.app.engine import Engine, fresh, SPAN
 from backend.app.market import Market, START
-from backend.app.risk_policy import validate_rules
+from backend.app.risk_policy import validate_rules, retire_custom_rules
 
 
 def rule(metric="concentration", asset="held", threshold=60, enabled=True):
     return dict(metric=metric, asset=asset, threshold=threshold, enabled=enabled)
+
+
+def test_retiring_custom_rules_preserves_pending_orders_and_builtin_alerts():
+    s=fresh(guided=True)
+    s.update(status='paused',risk_rules=[],risk_rule_state={},last_alert=s['now'],
+             pending={'kind':'trade','asset':'A','side':'buy','budget':'1000000','at':'2022-11-08T09:00:00+09:00'})
+    s['alerts']=[{'id':'custom-old','decision':None},{'id':'risk-existing','decision':None}]
+    before=copy.deepcopy(s)
+    assert retire_custom_rules(s)
+    for key in ('pending','cash','holdings','costs','realized','fees','trades','elapsed','now','status','last_alert'):
+        assert s[key]==before[key]
+    assert s['alerts'][0]['decision']=='retired' and s['alerts'][1]['decision'] is None
+    assert not retire_custom_rules(s) and len(s['choices'])==1
 
 
 @pytest.fixture(scope="module")

@@ -212,3 +212,28 @@ def test_health_probe_cached_and_recovers_after_expiry(cloud,monkeypatch):
     assert c.get('/api/health').status_code==200 and len(calls)==1
     clock[0]+=61
     assert c.get('/api/health').status_code==200 and len(calls)==2
+
+
+def test_existing_custom_guard_is_retired_once_and_persisted_on_read(cloud):
+    c,store,wall=cloud
+    g=c.post('/api/guided-sessions',json={}).json();sid=g['id'];url='/api/sessions/'+sid
+    assert c.post(url+'/start',json={'weights':{'cash':30,'A':70,'B':0,'C':0,'D':0}}).status_code==200
+    wall[0]+=1
+    assert c.get(url).json()['status']=='paused'
+    legacy=store.records[sid][0]['state']
+    legacy['risk_rules']=[{'metric':'asset_loss','asset':'held','threshold':8,'enabled':True}]
+    legacy['risk_rule_state']={'0:A':{'active':True,'last':legacy['now']}}
+    legacy['alerts'][-1]['id']='custom-legacy-alert'
+    trades=copy.deepcopy(legacy['trades']);cash=legacy['cash'];last_alert=legacy['last_alert']
+    writes=store.writes
+    g=c.get(url).json()
+    assert g['risk_rules'] is None and g['status']=='paused' and g['pending'] is None
+    assert g['alerts'][-1]['decision']=='retired' and g['choices'][-1]['action']=='default_guard'
+    assert g['trades'] and len(g['trades'])==len(trades)
+    durable=store.records[sid][0]['state']
+    assert durable['trades']==trades and durable['cash']==cash and durable['last_alert']==last_alert
+    assert 'risk_rules' not in durable and 'risk_rule_state' not in durable and store.writes==writes+1
+    assert c.get(url).json()['choices']==g['choices'] and store.writes==writes+1
+    assert c.post(url+'/resume',json={}).status_code==200
+    wall[0]+=.5
+    assert c.get(url).json()['status']=='running'  # 기본 90일 대기 동안 즉시 재정지하지 않는다.

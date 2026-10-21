@@ -13,6 +13,20 @@ DEFAULT_RULES = [
 ]
 
 
+def retire_custom_rules(s):
+    """운영 게임의 사용자 조건을 기본 가드로 전환한다. 장부·주문·정지는 보존한다."""
+    if s.get("mode") != "guided" or s.get("risk_rules") is None:
+        return False
+    s.pop("risk_rules", None)
+    s.pop("risk_rule_state", None)
+    for alert in s["alerts"]:
+        if alert["decision"] is None and alert["id"].startswith("custom-"):
+            alert["decision"] = "retired"
+    s["choices"].append({"at": s["now"], "action": "default_guard",
+                         "summary": "사용자 조건 기능을 중단하고 기본 리스크 가드로 전환했습니다. 거래·잔고·정지 상태는 유지합니다."})
+    return True
+
+
 def validate_rules(rules):
     if not isinstance(rules, list) or len(rules) > 8:
         raise ValueError("리스크 조건은 최대 8개까지 만들 수 있습니다.")

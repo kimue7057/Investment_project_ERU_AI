@@ -19,6 +19,8 @@ MODEL = "openai/gpt-6-luna"
 PRIVATE = re.compile(r"https?://|www\.|bitcoin|ethereum|solana|dogecoin|(?<![a-z])(?:BTC|ETH|SOL|DOGE|FTX|LUNA)(?![a-z])|비트코인|이더리움|솔라나|도지코인|실제.{0,3}이름|진짜.{0,3}이름|sk-[a-z0-9-]{8,}", re.I)
 YEARS = re.compile(r"(?<!\d)20\d{2}(?!\d)")
 PROMPT = """너는 ERU 모의투자의 한국어 상담 파트너다. 설명을 늘어놓기보다 사용자의 판단을 함께 구체화한다.
+[현재 기본 가드 운영]
+guard_policy=builtin이면 사용자 조건 생성과 조건 상담 단계는 중단된 상태다. 아래 예전 클라이언트 안내보다 이 규칙이 우선한다. 초기 구성은 사용자가 직접 고르고 확인하며, AI는 투자 중 자산 이해·가드 근거·유지·매매를 논의한다. risk_rules는 항상 null이다. 사용자 지정 손절·알림 기준을 새로 제안하거나 설정됐다고 말하지 않는다. 현재 기본 가드는 facts.risk_policy로 설명하고, 매매는 사용자 승인이 필요하다. 이전 대화의 7일 재알림이나 손실 % 조건은 중단된 과거 조건이다.
 [직접 설정한 계획과 조건 상담]
 현재 앱의 초기 설정은 사용자가 설명 카드에서 균형형·안정형·공격형·기타를 선택하고 현금·투자 비중, 투자할 코인과 비율을 직접 정한 뒤 마지막 rules 페이지에서만 AI를 사용한다. setup.profile=custom은 사용자가 '기타'로 직접 정한 현금 비중이다. 이를 균형형 등으로 임의 분류하거나 다시 성향 선택·AI 자산 제안으로 보내지 않는다.
 rules 페이지에서는 조건을 왜 만드는지와 판단에 도움이 되는 특징을 먼저 설명한다. 손실 관리(원가 대비 종목 손실/시작 자금 대비 전체 손실), 급락 확인(확정 일봉 하락률), 쏠림 관리(전체 자산 내 종목 비중) 중 사용자 목적과 현재 구성에 맞는 기준을 제안한다. 목적 카드의 '제안해줘' 요청에는 설명과 함께 사용자가 선택할 수 있는 risk_rules를 제시한다.
@@ -115,6 +117,8 @@ def facts_for(game, asset):
         "risk_policy": "리스크 조건은 종목 비중·매수원가 대비 평가손실·확정 일봉 하락률·시작 자금 대비 전체 손실로 설정할 수 있습니다. 각각 설정한 양수 % 이상이면 시장을 멈추고 상담합니다. 자동 손절 주문은 아닙니다. 충족이 이어지면 조건·종목별 게임 7일 후 재알림하며, 조건을 벗어났다가 다시 도달하면 새로 알립니다. 전체 손실은 미수이자 포함 총자산, 종목 손실은 예상 매도 수수료 차감 전 기준입니다.",
     }
     alert = next((a for a in reversed(game["alerts"]) if a["decision"] is None), None)
+    if game.get("guard_policy") == "builtin":
+        facts["risk_policy"] = "현재 사용자 조건 생성은 중단됐고 기본 가드를 사용합니다. 보유 코인의 전체 자산 비중 60% 초과, 보유 코인의 확정 주봉 RSI 75 초과, 확정 주봉 RSI 30 미만이며 현금 비중 20% 이상, 보유 코인의 확정 일봉 전일 종가 대비 10% 초과 하락을 확인합니다. RSI는 최근 14개 확정 주간 가격 변화의 상승·하락 강도입니다. 과열·집중·급락은 매도 검토, 침체와 현금 여력은 매수 검토 신호입니다. 자동 알림 후 게임 속 90일의 공통 대기 간격과 같은 종목·같은 주봉 중복 방지를 적용합니다. 자동 매매하지 않고 시장 정지 후 사용자 승인으로 대응합니다."
     if alert:
         facts["guard"] = f"{ASSET_NAMES[alert['asset']]}에 대한 가드 근거: {alert['summary']} 제안은 선택지이며 향후 수익의 예측이 아닙니다."
     performance = next((p for p in game.get("asset_performance", []) if p["asset"] == asset), None)
@@ -154,6 +158,7 @@ def context_for(game, asset, draft, setup=None):
             prepared["allocation"] = ({a:float(v) for a,v in weights(setup["allocation"]).items()}
                                       if setup.get("allocation") is not None else None)
     return {"facts": facts, "asset_names": ASSET_NAMES, "as_of": game["now"], "status": game["status"],
+            "guard_policy": game.get("guard_policy"),
             "current_draft": draft, "initial_plan": game.get("initial_plan"), "setup": prepared,
             "confirmed_risk_rules": game.get("risk_rules"),
             "focus_asset": None if setup else asset,
@@ -164,7 +169,7 @@ def context_for(game, asset, draft, setup=None):
                 for m in game.get("chat", [])[-12:]]}
 
 
-def schema_for(facts):
+def schema_for(facts, builtin=False):
     rule = {"type": "object", "properties": {
         "metric": {"type": "string", "enum": ["concentration", "asset_loss", "daily_drop", "portfolio_loss"]},
         "asset": {"type": "string", "enum": ["held", "portfolio", "A", "B", "C", "D"]},
@@ -177,7 +182,7 @@ def schema_for(facts):
         "paragraphs": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 4},
         "fact_ids": {"type": "array", "items": {"type": "string", "enum": list(facts)}, "minItems": 1, "maxItems": 12},
         "allocation": {"anyOf": [allocation, {"type": "null"}]}, "suggest_allocation": {"type": "boolean"},
-        "risk_rules": {"anyOf": [{"type": "array", "items": rule, "maxItems": 8}, {"type": "null"}]},
+        "risk_rules": {"type": "null"} if builtin else {"anyOf": [{"type": "array", "items": rule, "maxItems": 8}, {"type": "null"}]},
         "setup_preference": {"anyOf": [{"type":"object", "properties": {
             "profile":{"type":"string","enum":["cautious","balanced","active"]},
             "cash":{"type":"number","minimum":0,"maximum":100}},
@@ -268,6 +273,8 @@ def validate_answer(result, context):
         raise ValueError("불필요한 비중 제안")
     risk_rules = result["risk_rules"]
     if risk_rules is not None:
+        if context.get("guard_policy") == "builtin":
+            raise ValueError("사용자 조건 제안 기능은 중단됐습니다.")
         if not context.get("setup") or context["status"] != "ready":
             raise ValueError("초기 설정에서만 리스크 조건을 제안할 수 있습니다.")
         risk_rules = validate_rules(risk_rules)
@@ -314,7 +321,8 @@ def discuss(game, question, asset, draft, setup=None):
             context = context_for(game, asset, draft, setup)
             model = os.getenv("OPENROUTER_MODEL", MODEL)
             stage = "generation_format"
-            result = generate(token, model, PROMPT, {"context": context, "question": question}, schema_for(context["facts"]))
+            response_schema = schema_for(context["facts"], builtin=context.get("guard_policy") == "builtin")
+            result = generate(token, model, PROMPT, {"context": context, "question": question}, response_schema)
             stage = "response_validation"
             paragraphs, allocation, risk_rules, preference = validate_answer(result, context)
             # 생성과 별개로 근거를 다시 검토한다. 허용 사실 밖 사건·시세는 실패 시 공개하지 않는다.
@@ -339,7 +347,7 @@ def discuss(game, question, asset, draft, setup=None):
                     raise ValueError("공개 사실 근거 검토 실패")
                 stage = "repair_generation"
                 result = generate(token, model, PROMPT + "\n이전 응답의 근거가 확인되지 않았다. 원래 질문과 공개 맥락만으로 1~2개 짧은 문단을 새로 작성한다. 최근 사용자 발언의 숫자·선호를 연결하고 새로운 시장 사실을 추가하지 않는다.",
-                    {"context": context, "question": question}, schema_for(context["facts"]), timeout_seconds=min(6, remaining-4))
+                    {"context": context, "question": question}, response_schema, timeout_seconds=min(6, remaining-4))
                 stage = "repair_validation"
                 paragraphs, allocation, risk_rules, preference = validate_answer(result, context)
                 stage = "repair_grounding_review"

@@ -243,21 +243,22 @@ def test_inflight_duplicate_chat_does_not_call_model(client, monkeypatch):
     assert r.status_code == 400 and not main.load(g["id"])["chat"]
 
 
-def test_initial_risk_settings_are_validated_and_saved_only_on_start(client):
+def test_initial_custom_risk_settings_are_disabled_without_orders(client):
     g=client.post("/api/guided-sessions",json={}).json()
     url="/api/sessions/"+g["id"]
     rules=[{"metric":"asset_loss","asset":"A","threshold":8,"enabled":True}]
     body={"request_id":str(uuid.uuid4()),"question":"알림 조건의 의미를 알려줘","draft":CASH,
           "setup":{"profile":"balanced","step":3,"cash":100,"selected":[],"shares":dict.fromkeys("ABCD",0),"risk_rules":rules}}
     r=client.post(url+"/chat",json=body)
-    assert r.status_code==200 and r.json()["risk_rules"] is None and not r.json()["trades"]
+    assert r.status_code==400 and not main.load(g["id"])["trades"]
     bad=client.post(url+"/start",json={"weights":CASH,"risk_rules":[{**rules[0],"threshold":-8}]})
     assert bad.status_code==422 and main.load(g["id"])["status"]=="ready"
     r=client.post(url+"/start",json={"weights":CASH,"risk_rules":rules})
-    assert r.status_code==200 and r.json()["risk_rules"]==rules and not r.json()["trades"]
-    assert client.get(url).json()["risk_rules"]==rules
+    assert r.status_code==400 and main.load(g["id"])["status"]=="ready"
+    assert client.get(url).json()["risk_rules"] is None
     assert client.post(url+"/start",json={"weights":CASH,"risk_rules":[]}).status_code==400
-    assert client.get(url).json()["risk_rules"]==rules
+    assert client.post(url+"/start",json={"weights":CASH}).status_code==200
+    assert client.get(url).json()["risk_rules"] is None
 
 
 def test_conversation_api_keeps_unset_plan_and_conditions_unconfirmed(client,monkeypatch):
@@ -275,22 +276,16 @@ def test_conversation_api_keeps_unset_plan_and_conditions_unconfirmed(client,mon
     assert body["pending"] is None and not body["trades"] and body["elapsed"]==0
 
 
-def test_direct_custom_profile_is_accepted_in_final_rules_chat(client,monkeypatch):
+def test_previous_rules_chat_is_disabled_without_calling_ai(client,monkeypatch):
     g=client.post('/api/guided-sessions',json={}).json()
     allocation={'cash':30,'A':42,'B':28,'C':0,'D':0}
     setup={'mode':'conversation','phase':'rules','profile':'custom','cash':30,'step':3,
            'selected':['A','B'],'shares':{'A':60,'B':40,'C':0,'D':0},'allocation':allocation,'risk_rules':None,'proposal_choices':{}}
-    def reply(snapshot,question,asset,draft,received):
-        assert received==setup and draft==allocation
-        return {'question':question,'paragraphs':['보유한 코인의 원가 대비 손실을 기준으로 점검할 수 있어요.'],'weights':None,
-                'risk_rules':[{'metric':'asset_loss','asset':'held','threshold':8,'enabled':True}],'source':'ai','status':'검증용'}
-    monkeypatch.setattr(main,'discuss',reply)
+    monkeypatch.setattr(main,'discuss',lambda *a:pytest.fail('중단한 조건 상담은 AI를 호출하지 않는다'))
     r=client.post('/api/sessions/'+g['id']+'/chat',json={'request_id':str(uuid.uuid4()),'question':'손실 관리 기준을 제안해줘','draft':allocation,'setup':setup})
-    assert r.status_code==200
-    body=r.json()
-    assert body['chat'][-1]['setup_basis']['profile']=='custom'
-    assert body['chat'][-1]['risk_rules'][0]['threshold']==8
-    assert body['initial_plan'] is None and body['risk_rules'] is None and body['pending'] is None and not body['trades']
+    assert r.status_code==400
+    body=client.get('/api/sessions/'+g['id']).json()
+    assert not body['chat'] and body['risk_rules'] is None and body['pending'] is None and not body['trades']
 
 
 @pytest.mark.parametrize("question,cash", [("안정형으로 구성해줘",60),("균형형으로 구성해줘",30),("공격형으로 구성해줘",10)])

@@ -17,7 +17,18 @@ export function ruleText(r:RiskRule) {
   return `${target}의 ${metric} ${r.threshold}% 이상이면 알림`;
 }
 export function RiskSummary({rules}:{rules:RiskRule[]|null|undefined}) {
-  if (rules==null) return <p className="fine">기존 기본 리스크 가드를 사용 중이에요.</p>;
+  if (rules==null) return <BuiltInGuardSummary/>;
   const active=rules.filter(r=>r.enabled);
   return <div className="risk-summary">{active.length ? active.map((r,i)=><p key={i}><span aria-hidden="true">●</span> {ruleText(r)}</p>):<p>켜진 리스크 알림이 없어요. 조건에 따른 자동 일시정지도 작동하지 않아요.</p>}<small>도달하면 시장 정지 → AI와 대응 논의 → 유지·매매 승인. 자동 손절 주문은 아니에요.</small></div>;
+}
+
+export function BuiltInGuardSummary(){
+  return <div className="risk-summary" aria-label="기본 리스크 가드 기준">
+    <p>● 보유한 한 코인의 비중이 전체 자산의 60%를 넘을 때</p>
+    <p>● 보유 코인의 확정 주봉 RSI가 75를 넘을 때: 과열·매도 검토</p>
+    <p>● 확정 주봉 RSI가 30 미만이고 현금 비중이 20% 이상일 때: 매수 검토</p>
+    <p>● 보유 코인의 확정 일봉이 전일보다 10% 넘게 하락할 때</p>
+    <small>RSI는 최근 14개 주간 가격 변화의 상승·하락 강도예요. 알림 후 게임 속 90일 동안 추가 자동 알림을 쉬어요. 같은 종목·같은 주봉의 중복 알림도 막아요.</small>
+    <small>신호 감지 → 시장 정지 → AI와 대응 논의 → 유지·매매 승인. 자동 손절 주문은 아니에요.</small>
+  </div>;
 }

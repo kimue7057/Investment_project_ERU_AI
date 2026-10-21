@@ -19,7 +19,7 @@ from .market import Market, ROOT, START, CATALOG
 from .blob_store import BlobSessions, StorageConflict
 from .supabase_store import SupabaseSessions
 from .mentor import discuss
-from .risk_policy import validate_rules
+from .risk_policy import validate_rules, retire_custom_rules
 
 app = FastAPI(title="ERU AI Alpha V1", docs_url=None, redoc_url=None, openapi_url=None)
 lock = threading.RLock()
@@ -188,6 +188,7 @@ def load(sid):
     if not row:
         raise HTTPException(404, "게임을 찾을 수 없습니다. 새 게임을 시작하세요.")
     state = json.loads(row[0])
+    retire_custom_rules(state)
     now = time.monotonic()
     if sid not in anchors and state["status"] == "running":
         state["status"] = "paused"  # Server restart never advances offline time.
@@ -227,6 +228,7 @@ def update_cloud(sid, action, alias="A", read_only=False):
         envelope, etag = result
         state = envelope["state"]
         original = copy.deepcopy(state)
+        migrated_guard = retire_custom_rules(state)
         wall = time.time()
         delta = max(0, wall - envelope["last_seen"])
         # A suspended/background browser does not silently skip a long market period.
@@ -243,7 +245,7 @@ def update_cloud(sid, action, alias="A", read_only=False):
         try:
             # Reconstruct ordinary frames without writing on every poll. Persist
             # decisions, stop/end boundaries, and a five-second liveness checkpoint.
-            must_save = not read_only or state["status"] != original["status"] or delta >= 5
+            must_save = migrated_guard or not read_only or state["status"] != original["status"] or delta >= 5
             if state != original and must_save:
                 cloud_store.write(sid, state, wall, etag)
         except StorageConflict:
@@ -333,7 +335,9 @@ def state(sid: str, asset: str = "A"):
 
 @app.post("/api/sessions/{sid}/start")
 def start(sid: str, body: StartPlan):
-    return update(sid, lambda s: engine.start(s, body.weights, body.risk_rules))
+    if body.risk_rules is not None:
+        raise HTTPException(400, "사용자 조건 설정은 중단했습니다. 화면을 새로고침하고 기본 리스크 가드로 시작하세요.")
+    return update(sid, lambda s: engine.start(s, body.weights))
 
 
 @app.post("/api/sessions/{sid}/play")
@@ -431,6 +435,8 @@ def approved_order(sid: str, body: ApprovedOrder):
 
 @app.post("/api/sessions/{sid}/chat")
 def chat(sid: str, body: Chat):
+    if body.setup and (body.setup.phase == "rules" or body.setup.risk_rules is not None):
+        raise HTTPException(400, "조건 상담 단계는 중단했습니다. 화면을 새로고침하고 투자 계획을 확인하세요.")
     request_id = str(body.request_id)
     def begin(s):
         if s.get("mode") != "guided" or s["status"] == "finished":
@@ -454,7 +460,7 @@ def chat(sid: str, body: Chat):
     if any(c["id"] == request_id for c in snapshot["chat"]):
         return snapshot
     setup = body.setup.model_dump() if body.setup and snapshot["status"] == "ready" else None
-    reply = discuss(snapshot, body.question.strip(), body.asset, body.draft, setup)
+    reply = discuss({**snapshot, "guard_policy": "builtin"}, body.question.strip(), body.asset, body.draft, setup)
     def finish(s):
         if s.get("chat_request") != request_id or s["now"] != snapshot["now"] or s["status"] != snapshot["status"]:
             raise ValueError("논의 중 투자 상태가 바뀌었습니다. 현재 상태에서 다시 질문하세요.")

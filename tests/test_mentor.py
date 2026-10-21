@@ -39,6 +39,17 @@ def answer(**changes):
     return result
 
 
+def test_builtin_guard_context_cannot_propose_custom_conditions(game):
+    game={**game,'guard_policy':'builtin'}
+    context=mentor.context_for(game,'A',PLAN)
+    assert context['guard_policy']=='builtin'
+    assert '90일' in context['facts']['risk_policy'] and '75' in context['facts']['risk_policy']
+    assert mentor.schema_for(context['facts'],builtin=True)['properties']['risk_rules']=={'type':'null'}
+    result=answer(risk_rules=[{'metric':'asset_loss','asset':'held','threshold':8,'enabled':True}])
+    with pytest.raises(ValueError,match='중단'):
+        mentor.validate_answer(result,context)
+
+
 def test_openrouter_context_history_and_no_trade(game, monkeypatch):
     game["chat"] = [{"id": str(uuid.uuid4()), "question": f"질문 {i}", "paragraphs": ["현금 비중을 논의했어요."],
                     "weights": PLAN, "secret": "must-not-be-sent"} for i in range(15)]
