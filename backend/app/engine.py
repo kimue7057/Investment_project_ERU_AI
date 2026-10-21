@@ -106,6 +106,7 @@ class Engine:
                         if s.get("mode") != "guided" or any(w[a] > 0 for a in ALIASES) else None)
         if s.get("mode") == "guided":
             s["initial_plan"] = s["targets"].copy()
+            s["initial_profile"] = (s.get("setup_draft") or {}).get("profile")
             self.choice(s, "start", summary="초기 구성과 대기 자금 이자 운용을 승인했습니다.")
             if not s["pending"]:
                 s["baseline"] = {"cash": s["cash"], "holdings": s["holdings"].copy()}
@@ -371,6 +372,7 @@ class Engine:
                        "chart_asset", "trades", "history", "fee_rate", "identities", "guard")
             public = {k: public[k] for k in allowed if k in public}
             public.update({"mode": "guided", "interest_account": public_interest(s, now),
+                           "setup_draft": copy.deepcopy(s.get("setup_draft")),
                            "risk_rules": copy.deepcopy(s.get("risk_rules")),
                            "initial_plan": copy.deepcopy(s["initial_plan"]), "chat": copy.deepcopy(s["chat"]),
                            "trading_profit": float(D(s["realized"])) + sum(h["unrealized"] for h in holdings)})

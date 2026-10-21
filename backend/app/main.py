@@ -21,12 +21,15 @@ from .supabase_store import SupabaseSessions
 from .mentor import discuss
 from .risk_policy import validate_rules, retire_custom_rules
 from .investment_review import build_review, create_recap
+from .account_auth import (AccountAuth, account, authorize_game, current_account,
+                           set_auth_cookies, clear_auth_cookies)
 
 app = FastAPI(title="ERU AI Alpha V1", docs_url=None, redoc_url=None, openapi_url=None)
 lock = threading.RLock()
 anchors = {}
 log = logging.getLogger("eru.cloud")
 storage_health = {"store": None, "checked": 0.0, "available": None}
+auth_service = AccountAuth()
 
 
 def storage_failure(operation, exc):
@@ -98,7 +101,32 @@ async def local_boundary(request: Request, call_next):
         origins.add("https://" + host)
     if origin and origin not in origins:
         return JSONResponse({"detail": "동일 웹사이트에서 접속하세요."}, status_code=403)
-    response = await call_next(request)
+    identity, refreshed = None, None
+    path = request.url.path
+    protected = path in ("/api/sessions", "/api/paper-sessions", "/api/guided-sessions") or path.startswith(("/api/sessions/", "/api/account/"))
+    if protected or path in ("/api/auth/session", "/api/auth/logout"):
+        try:
+            identity, refreshed = auth_service.authenticate(request)
+            if protected and identity is None:
+                raise HTTPException(401, "이메일 인증 후 이용해 주세요.")
+        except HTTPException as exc:
+            if exc.status_code == 401 and path in ("/api/auth/session", "/api/auth/logout"):
+                refreshed = None
+            else:
+                response = JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+                response.headers["Cache-Control"] = "no-store"
+                return response
+    context = current_account.set(identity)
+    request.state.refreshed_tokens = refreshed
+    try:
+        response = await call_next(request)
+    finally:
+        current_account.reset(context)
+    secure = IS_CLOUD or request.url.scheme == "https"
+    if path != "/api/auth/logout":
+        set_auth_cookies(response, refreshed, secure)
+    if path == "/api/auth/session" and identity is None:
+        clear_auth_cookies(response, secure)
     response.headers["Cache-Control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
@@ -107,6 +135,50 @@ async def local_boundary(request: Request, call_next):
 
 class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+
+class EmailLogin(Strict):
+    email: str = Field(min_length=3, max_length=254, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value):
+        return value.strip().lower() if isinstance(value, str) else value
+
+
+class EmailCode(EmailLogin):
+    code: str = Field(pattern=r"^[0-9]{6,10}$")
+
+
+class NewGame(Strict):
+    previous_id: uuid.UUID | None = None
+
+
+class SignOut(Strict):
+    session_id: uuid.UUID | None = None
+
+
+class PortfolioDraft(Strict):
+    version: Literal[2]
+    phase: Literal["portfolio", "assets"]
+    profile: Literal["cautious", "balanced", "active", "custom"] | None
+    cash: str = Field(max_length=12, pattern=r"^[0-9.eE+-]*$")
+    coins: list[Literal["A", "B", "C", "D"]] = Field(max_length=4)
+    shares: dict[Literal["A", "B", "C", "D"], Annotated[str, Field(max_length=12, pattern=r"^[0-9.eE+-]*$")]]
+
+    @field_validator("coins")
+    @classmethod
+    def unique_coins(cls, value):
+        if len(set(value)) != len(value):
+            raise ValueError("종목을 중복 선택할 수 없습니다.")
+        return value
+
+    @field_validator("shares")
+    @classmethod
+    def complete_shares(cls, value):
+        if set(value) != set("ABCD"):
+            raise ValueError("네 코인의 입력을 모두 포함하세요.")
+        return value
 
 
 class Allocation(Strict):
@@ -189,6 +261,7 @@ def load(sid):
     if not row:
         raise HTTPException(404, "게임을 찾을 수 없습니다. 새 게임을 시작하세요.")
     state = json.loads(row[0])
+    authorize_game(state)
     retire_custom_rules(state)
     now = time.monotonic()
     if sid not in anchors and state["status"] == "running":
@@ -228,6 +301,7 @@ def update_cloud(sid, action, alias="A", read_only=False):
             raise HTTPException(404, "게임을 찾을 수 없습니다. 새 게임을 시작하세요.")
         envelope, etag = result
         state = envelope["state"]
+        authorize_game(state)
         original = copy.deepcopy(state)
         migrated_guard = retire_custom_rules(state)
         wall = time.time()
@@ -293,6 +367,73 @@ def catalog():
             "research": []}
 
 
+@app.get("/api/auth/session")
+def auth_session():
+    user = current_account.get()
+    return {"configured": auth_service.configured, "user": {"id": user.id, "email": user.email} if user else None}
+
+
+@app.post("/api/auth/send-code")
+def send_code(body: EmailLogin):
+    auth_service.send(body.email)
+    return {"sent": True, "retry_after": 60}
+
+
+@app.post("/api/auth/verify")
+def verify_code(body: EmailCode, request: Request):
+    user, tokens = auth_service.verify(body.email, body.code)
+    response = JSONResponse({"user": {"id": user.id, "email": user.email}})
+    set_auth_cookies(response, tokens, IS_CLOUD or request.url.scheme == "https")
+    return response
+
+
+@app.post("/api/auth/logout")
+def sign_out(request: Request, body: SignOut | None = None):
+    if body and body.session_id and current_account.get():
+        def stop(s):
+            if s["status"] == "running":
+                s["status"] = "paused"
+        update(str(body.session_id), stop)
+    auth_service.logout(request, request.state.refreshed_tokens)
+    response = JSONResponse({"signed_out": True})
+    clear_auth_cookies(response, IS_CLOUD or request.url.scheme == "https")
+    return response
+
+
+@app.get("/api/account/games")
+def account_games(offset: int = 0):
+    if not data_ready:
+        raise HTTPException(503, "검증된 시세 데이터를 준비 중입니다.")
+    if not 0 <= offset <= 100000:
+        raise HTTPException(400, "올바른 목록 위치를 입력해 주세요.")
+    owner = account().id
+    if IS_CLOUD:
+        if not isinstance(cloud_store, SupabaseSessions):
+            raise HTTPException(503, "계정 기록 저장소 연결을 확인해 주세요.")
+        try:
+            rows = cloud_store.list_owned(owner, offset)
+        except Exception as exc:
+            storage_failure("account_list", exc)
+            raise HTTPException(503, "내 투자 기록을 불러오지 못했습니다.") from None
+    else:
+        with lock:
+            rows = [{"id": r[0], "state": json.loads(r[1]), "last_seen": 0} for r in db.execute(
+                "SELECT id,state FROM sessions WHERE json_extract(state,'$.owner_id')=? "
+                "AND json_extract(state,'$.mode')='guided' ORDER BY json_extract(state,'$.created_at') DESC,id DESC LIMIT 21 OFFSET ?",
+                (owner, offset)).fetchall()]
+    summaries = []
+    for row in rows[:20]:
+        s = row["state"]
+        if s.get("owner_id") != owner:
+            continue  # 공급자 필터 외에 서버에서도 소유자를 다시 확인한다.
+        nav = engine.nav(s)
+        summaries.append({"id": row["id"], "status": s["status"], "created_at": s.get("created_at"),
+                          "now": s["now"], "elapsed": s["elapsed"], "nav": float(nav),
+                          "return_pct": float((nav/100000000-1)*100), "trade_count": len(s["trades"]),
+                          "initial_plan": copy.deepcopy(s.get("initial_plan"))})
+    return {"games": summaries, "next_offset": offset+20 if len(rows) > 20 else None}
+
+
 @app.post("/api/sessions")
 def create():
     return create_session(False)
@@ -304,15 +445,22 @@ def create_paper():
 
 
 @app.post("/api/guided-sessions")
-def create_guided():
+def create_guided(body: NewGame | None = None):
+    if body and body.previous_id:
+        def pause_previous(s):
+            if s["status"] == "running":
+                s["status"] = "paused"
+        update(str(body.previous_id), pause_previous)
     return create_session(False, guided=True)
 
 
 def create_session(paper, guided=False):
+    user = account()
     if not data_ready:
         raise HTTPException(503, "시세 데이터 수집 및 검증이 필요합니다.")
     with lock:
         sid, state = str(uuid.uuid4()), fresh(paper=paper, guided=guided)
+        state.update(owner_id=user.id, created_at=time.time())
         if IS_CLOUD:
             if cloud_store is None:
                 raise HTTPException(503, "게임 저장소를 준비 중입니다.")
@@ -341,6 +489,15 @@ def start(sid: str, body: StartPlan):
     return update(sid, lambda s: engine.start(s, body.weights))
 
 
+@app.post("/api/sessions/{sid}/setup-draft")
+def save_setup_draft(sid: str, body: PortfolioDraft):
+    def action(s):
+        if s.get("mode") != "guided" or s["status"] != "ready":
+            raise ValueError("투자 시작 전 작성 중인 계획만 저장할 수 있습니다.")
+        s["setup_draft"] = body.model_dump()
+    return update(sid, action)
+
+
 @app.post("/api/sessions/{sid}/play")
 def play(sid: str):
     return update(sid, lambda s: engine.play(s))
@@ -354,6 +511,14 @@ def pause(sid: str):
         if s["status"] != "running":
             raise ValueError("재생 중인 게임만 일시정지할 수 있습니다.")
         s["status"] = "paused"
+    return update(sid, action)
+
+
+@app.post("/api/sessions/{sid}/leave")
+def leave_game(sid: str):
+    def action(s):
+        if s["status"] == "running":
+            s["status"] = "paused"
     return update(sid, action)
 
 

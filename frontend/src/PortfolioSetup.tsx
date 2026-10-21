@@ -3,19 +3,21 @@ import {aliases,assetName,money,type Allocation,type Asset} from './model';
 import {profiles} from './setup';
 import {BuiltInGuardSummary} from './RiskRules';
 import {ProfileChoices,CoinChoices,CoinRatios} from './SetupChoices';
-import {setupPhases,setupLabels,restoreManualPlan,manualAllocation,profileReady,selectProfile,changeCash,toggleCoin,changeShare,shareEqually,moveManualPhase} from './manualSetup';
+import {setupPhases,setupLabels,restoreManualPlan,manualAllocation,profileReady,selectProfile,changeCash,toggleCoin,changeShare,shareEqually,moveManualPhase,type ManualPlan} from './manualSetup';
 
-export default function PortfolioSetup({sessionId,catalog,total,annualRate,policy,terms,busy,onChange,onReview}:{
+export default function PortfolioSetup({sessionId,catalog,total,annualRate,policy,terms,busy,onChange,onReview,initialPlan,onDraftChange,saveStatus}:{
   sessionId:string;catalog:Asset[];total:number;annualRate:number;policy:string;terms:string;busy:boolean;
   onChange:(w:Allocation)=>void;onReview:(w:Allocation)=>void;
+  initialPlan?:ManualPlan|null;onDraftChange?:(plan:ManualPlan)=>void;saveStatus?:string;
 }){
   const key='eru-manual-setup-v2-'+sessionId;
-  const [plan,setPlan]=useState(()=>restoreManualPlan(localStorage.getItem(key)||localStorage.getItem('eru-manual-setup-v1-'+sessionId)));
+  const [plan,setPlan]=useState(()=>restoreManualPlan(initialPlan?JSON.stringify(initialPlan):localStorage.getItem(key)||localStorage.getItem('eru-manual-setup-v1-'+sessionId)));
   const [confirm,setConfirm]=useState(false),[consent,setConsent]=useState(false);
   const confirmation=useRef<HTMLElement>(null);
   const allocation=manualAllocation(plan),profile=profiles.find(p=>p.id===plan.profile);
   const allocationKey=allocation?JSON.stringify(allocation):'';
   useEffect(()=>{localStorage.setItem(key,JSON.stringify(plan));},[key,plan]);
+  useEffect(()=>{onDraftChange?.(plan);},[plan,onDraftChange]);
   useEffect(()=>{if(allocationKey)onChange(JSON.parse(allocationKey));},[allocationKey,onChange]);
   useEffect(()=>{setConsent(false);setConfirm(false);},[plan.phase,allocationKey,plan.profile]);
   useEffect(()=>{if(confirm)confirmation.current?.scrollIntoView({behavior:'smooth',block:'start'});},[confirm]);
@@ -24,6 +26,7 @@ export default function PortfolioSetup({sessionId,catalog,total,annualRate,polic
     return allocation?<div className="consultation-allocation">{(['cash',...aliases] as const).filter(a=>a==='cash'||allocation[a]>0).map(a=><div key={a}><span>{a==='cash'?'현금 (이자 수익)':assetName(a)}</span><b>{allocation[a]}%</b><small>{money(total*allocation[a]/100)}</small></div>)}</div>:<p className="plan-empty">투자할 코인을 선택하고 투자금 내 비중 합계를 100%로 맞춰 주세요.</p>;
   }
   return <div className="preparation consultation-flow manual-setup">
+    {saveStatus&&<p className="account-draft-status" role="status">{saveStatus}</p>}
     <ol className="consultation-pages" aria-label="투자 준비 단계">{setupPhases.map((phase,i)=><li key={phase} aria-current={phase===plan.phase?'step':undefined} className={phase===plan.phase?'current':''}><span>{i+1}</span>{setupLabels[phase]}</li>)}</ol>
     <div className="page-title"><div className="eyebrow">내가 만드는 투자 계획 · {index+1}/2</div><h1>{plan.phase==='portfolio'?'어떤 포트폴리오로 시작할까요?':'어떤 자산에 투자할까요?'}</h1><p>{plan.phase==='portfolio'?'유형별 특징을 비교하고 나에게 맞는 현금·투자 비중을 직접 선택해요.':'코인의 특징과 위험을 읽고, 투자할 종목과 비율을 직접 정해요.'}</p></div>
     <div className={'consultation-layout manual-'+plan.phase}>

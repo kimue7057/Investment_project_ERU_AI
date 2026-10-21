@@ -62,6 +62,16 @@ class SupabaseSessions:
         row = rows[0]
         return {"state": row["state"], "last_seen": row["last_seen"]}, str(row["revision"])
 
+    def list_owned(self, owner, offset=0):
+        if not SESSION_ID.fullmatch(owner):
+            raise ValueError("Invalid account identifier")
+        response = self.rest.request("GET", "eru_game_sessions", params={
+            "environment": "eq."+self.environment, "state->>owner_id": "eq."+owner,
+            "state->>mode": "eq.guided", "select": "id,state,last_seen", "order": "last_seen.desc,id.desc",
+            "offset": str(offset), "limit": "21"})
+        response.raise_for_status()
+        return response.json()
+
     def write(self, sid, state, wall_time, etag=None):
         params = self.filters(sid)
         payload = {"state": state, "last_seen": wall_time}

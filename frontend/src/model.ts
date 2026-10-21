@@ -1,3 +1,4 @@
+import type {ManualPlan} from './manualSetup';
 export const aliases = ['A', 'B', 'C', 'D'] as const;
 export type Alias = typeof aliases[number];
 export const assetNames: Record<Alias,string> = {A:'Asterra',B:'Velora',C:'Nexora',D:'Lumera'};
@@ -29,6 +30,7 @@ export type SetupPhase = 'portfolio'|'assets'|'rules';
 export type Discussion = {id: string; at: string; question: string; paragraphs: string[]; source: 'ai'|'rules'|'boundary'; status: string; weights: Allocation | null; risk_rules?:RiskRule[]; setup_preference?:SetupPreference; retryable?:boolean; phase?:SetupPhase; setup_basis?:{profile:SetupPreference['profile']|null;cash:number;allocation:Allocation|null}};
 export type SetupContext = {mode?:'conversation'; phase?:SetupPhase; proposal_choices?:Record<string,'accepted'|'declined'|'superseded'>; allocation?:Allocation|null; profile: SetupPreference['profile']|null; step: number; cash: number; selected: Alias[]; shares: Record<Alias,number>; risk_rules?:RiskRule[]|null};
 export type GuidedGame = Omit<Game, 'mode'|'trades'> & {mode: 'guided'; initial_plan: Record<string,string> | null; trades:FilledTrade[]; asset_performance:AssetPerformance[];
+  setup_draft?:ManualPlan|null;
   risk_rules:RiskRule[]|null;
   interest_account: {accrued: number; annual_rate: number; principal: number; reserved: number; available: number; settled: boolean; policy: string; terms: string};
   trading_profit: number; chat: Discussion[];

@@ -78,6 +78,20 @@ def test_probe_reads_only_one_id_and_never_writes():
     make_store(handler).probe()
 
 
+def test_account_list_is_owner_and_environment_scoped():
+    owner = str(uuid.uuid4())
+    def handler(request):
+        assert request.url.params["environment"] == "eq.production"
+        assert request.url.params["state->>owner_id"] == "eq."+owner
+        assert request.url.params["state->>mode"] == "eq.guided"
+        assert request.url.params["offset"] == "20" and request.url.params["limit"] == "21"
+        return httpx.Response(200, json=[])
+    store = make_store(handler)
+    assert store.list_owned(owner, 20) == []
+    with pytest.raises(ValueError):
+        store.list_owned(owner+",state.gt.0")
+
+
 def test_rejects_filter_injection_and_public_keys():
     store = make_store(lambda _: pytest.fail("Invalid identifiers must not be sent"))
     for sid in ("../../eru_market_bundles", SID + ",id.gt.0", ""):
