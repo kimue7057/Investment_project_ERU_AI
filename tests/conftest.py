@@ -4,7 +4,7 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def existing_ledger_test_identity(request, monkeypatch):
-    if request.path.name == "test_account_auth.py":
+    if request.path.name in ("test_account_auth.py", "test_bitcoin_api.py"):
         return
     from backend.app import main
     from backend.app.account_auth import Account

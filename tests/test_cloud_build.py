@@ -2,10 +2,43 @@ import base64
 import hashlib
 import io
 import zipfile
+import gzip
+import json
 
 import pytest
 
 from scripts import cloud_build
+
+
+def test_bitcoin_private_build_bundle_is_verified_and_separate(tmp_path,monkeypatch):
+    body=(cloud_build.ROOT/'data/normalized/bitcoin_cycles.csv').read_bytes()
+    private_engine=(cloud_build.ROOT/'data/private/bitcoin_engine_impl.py').read_bytes()
+    sha=hashlib.sha256(body).hexdigest()
+    (tmp_path/'data/metadata').mkdir(parents=True)
+    (tmp_path/'data/normalized').mkdir()
+    (tmp_path/'data/bootstrap').mkdir()
+    (tmp_path/'data/private').mkdir()
+    (tmp_path/'data/private/bitcoin_engine_impl.py').write_bytes(private_engine)
+    (tmp_path/'data/metadata/bitcoin_cycles_validation.json').write_text(json.dumps({'sha256':sha,'rows':3683,'engine_sha256':hashlib.sha256(private_engine).hexdigest()}))
+    (tmp_path/'data/bootstrap/bitcoin_cycles.csv.gz').write_bytes(gzip.compress(body))
+    stored=[]
+    def request(method,params=None,payload=None,table=None):
+        assert table=='eru_game_sessions'
+        if method=='GET':
+            assert params['environment']=='eq.production'
+            return [{'state':stored[0]['state']}] if stored else []
+        assert payload['state']['mode']=='bitcoin_market_bundle'
+        stored.append(payload)
+    monkeypatch.setattr(cloud_build,'ROOT',tmp_path)
+    monkeypatch.setattr(cloud_build,'supabase_request',request)
+    cloud_build.prepare_bitcoin()
+    assert (tmp_path/'data/normalized/bitcoin_cycles.csv').read_bytes()==body
+    assert len(stored)==1
+    cloud_build.prepare_bitcoin()
+    assert len(stored)==1
+    stored[0]['state']['sha256']='0'*64
+    with pytest.raises(ValueError,match='checksum'):
+        cloud_build.prepare_bitcoin()
 
 
 def bundle_fixture():

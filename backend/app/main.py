@@ -24,7 +24,7 @@ from .investment_review import build_review, create_recap
 from .account_auth import (AccountAuth, account, authorize_game, current_account,
                            set_auth_cookies, clear_auth_cookies, PKCE_COOKIE, set_pkce_cookie, clear_pkce_cookie)
 
-app = FastAPI(title="ERU AI Alpha V1", docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title="ERU AI Bitcoin Risk Guard V1", docs_url=None, redoc_url=None, openapi_url=None)
 lock = threading.RLock()
 anchors = {}
 log = logging.getLogger("eru.cloud")
@@ -369,11 +369,11 @@ def health():
             except Exception as exc:
                 storage_failure("probe", exc)
         if not storage_health["available"]:
-            return JSONResponse({"status":"storage_unavailable", "version":"AI 동행 투자 V3", "storage":storage_name}, status_code=503)
+            return JSONResponse({"status":"storage_unavailable", "version":"Bitcoin Risk Guard V1", "storage":storage_name}, status_code=503)
     if IS_CLOUD and cloud_store is None:
-        return JSONResponse({"status":"storage_required", "version":"AI 동행 투자 V3"}, status_code=503)
-    return {"status": "ready" if ready else "data_required", "version": "AI 동행 투자 V3",
-            "storage": storage_name}
+        return JSONResponse({"status":"storage_required", "version":"Bitcoin Risk Guard V1"}, status_code=503)
+    return {"status": "ready" if ready else "data_required", "version": "Bitcoin Risk Guard V1",
+            "storage": storage_name, "bitcoin_ready": bitcoin_service.engine is not None}
 
 
 @app.get("/api/catalog")
@@ -718,6 +718,11 @@ def review_recap(sid: str):
     final = finished_snapshot(sid, finish)
     return final.get("review_recap", reply)
 
+
+from .bitcoin_service import make_router
+
+bitcoin_router, bitcoin_service = make_router(lambda: (cloud_store, db), lock)
+app.include_router(bitcoin_router)
 
 dist = ROOT / "frontend/dist"
 if dist.exists():

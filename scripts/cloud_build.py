@@ -8,6 +8,8 @@ import urllib.parse
 import urllib.request
 import zipfile
 import hashlib
+import gzip
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,7 +27,7 @@ def verified_files(bundle, manifest):
     return bodies
 
 
-def supabase_request(method, params=None, payload=None):
+def supabase_request(method, params=None, payload=None, table="eru_market_bundles"):
     url = os.environ["SUPABASE_URL"].rstrip("/")
     parsed = urllib.parse.urlsplit(url)
     if (parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password
@@ -34,7 +36,9 @@ def supabase_request(method, params=None, payload=None):
     key = os.environ["SUPABASE_SECRET_KEY"]
     if not key.startswith("sb_secret_") or any(c.isspace() for c in key):
         raise ValueError("A server-only Supabase secret key is required")
-    endpoint = url + "/rest/v1/eru_market_bundles"
+    if table not in ("eru_market_bundles", "eru_game_sessions"):
+        raise ValueError("Unexpected private build table")
+    endpoint = url + "/rest/v1/" + table
     if params:
         endpoint += "?" + urllib.parse.urlencode(params)
     headers = {"apikey": key, "Content-Type": "application/json"}
@@ -93,6 +97,50 @@ def download_bundle(manifest):
         return response.read()
 
 
+def prepare_bitcoin():
+    """새 원본은 기존 서버 전용 JSON 저장소의 별도 불변 레코드로 보관한다."""
+    report_path = ROOT / "data/metadata/bitcoin_cycles_validation.json"
+    if not report_path.exists():
+        return  # 이전 보관 브랜치의 빌드와 호환한다.
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    sid = "c406fc9b-0818-5ea9-a632-4e12ef447abc"
+    params = {"environment":"eq.production", "id":"eq."+sid, "select":"state"}
+    rows = supabase_request("GET", params, table="eru_game_sessions")
+    if not rows:
+        packed = (ROOT/"data/bootstrap/bitcoin_cycles.csv.gz").read_bytes()
+        content = gzip.decompress(packed)
+        if hashlib.sha256(content).hexdigest() != report["sha256"]:
+            raise ValueError("BTC bootstrap checksum failed")
+        private_engine=(ROOT/"data/private/bitcoin_engine_impl.py").read_bytes()
+        if hashlib.sha256(private_engine).hexdigest()!=report["engine_sha256"]:
+            raise ValueError("BTC private engine checksum failed")
+        supabase_request("POST", payload={"environment":"production", "id":sid,"revision":1,
+            "last_seen":time.time(),"state":{"mode":"bitcoin_market_bundle", "sha256":report["sha256"],
+            "body_base64":base64.b64encode(packed).decode(),"engine_sha256":report["engine_sha256"],
+            "engine_base64":base64.b64encode(private_engine).decode()}},table="eru_game_sessions")
+        rows = supabase_request("GET",params,table="eru_game_sessions")
+    if not rows or rows[0]["state"].get("mode")!="bitcoin_market_bundle":
+        raise ValueError("BTC private build data is unavailable")
+    saved=rows[0]["state"]
+    body=gzip.decompress(base64.b64decode(saved["body_base64"],validate=True))
+    if saved["sha256"]!=report["sha256"] or hashlib.sha256(body).hexdigest()!=report["sha256"]:
+        raise ValueError("BTC private build checksum failed")
+    private_engine=base64.b64decode(saved["engine_base64"],validate=True)
+    if saved["engine_sha256"]!=report["engine_sha256"] or hashlib.sha256(private_engine).hexdigest()!=report["engine_sha256"]:
+        raise ValueError("BTC private engine checksum failed")
+    private_path=ROOT/"data/private/bitcoin_engine_impl.py"
+    private_path.parent.mkdir(parents=True,exist_ok=True)
+    private_path.write_bytes(private_engine)
+    target=ROOT/"data/normalized/bitcoin_cycles.csv"
+    target.write_bytes(body)
+    import sys
+    sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+    from scripts.collect_bitcoin_cycles import validate_rows
+    import csv
+    validate_rows(list(csv.DictReader(body.decode("utf-8").splitlines())))
+    print(json.dumps({"btc_data_verified":True,"rows":report["rows"]}))
+
+
 def main():
     manifest = json.loads((ROOT / "data/metadata/validation.json").read_text(encoding="utf-8"))
     bundle = download_bundle(manifest)
@@ -107,6 +155,7 @@ def main():
     result = validate()
     if not result["passed"]:
         raise ValueError("Historical market validation failed")
+    prepare_bitcoin()
     print(json.dumps({"data_verified": True, "rows": {a: r["rows"] for a, r in result["assets"].items()}}))
 
 

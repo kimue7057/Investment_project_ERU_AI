@@ -1,0 +1,75 @@
+{
+  "passed": true,
+  "source": "https://api.exchange.coinbase.com/products/BTC-USD/candles",
+  "pair": "BTC-USD",
+  "granularity": 86400,
+  "rows": 3683,
+  "first": "2016-05-01",
+  "last": "2026-05-31",
+  "sha256": "43c4cfa2a2d77c35150ffade9267c30134eb26d3ab026744f938b7de323cde9f",
+  "collected_at": "2026-11-14T17:42:53.371362+00:00",
+  "execution": "signal after completed daily close; execute at following daily open",
+  "raw_pages": [
+    {
+      "file": "data\\raw\\bitcoin_cycles\\2016-05-01.json",
+      "sha256": "5db78b8fcebef688b94d6eb54c65e1f94c8010871c46f752ae347edd94d66566"
+    },
+    {
+      "file": "data\\raw\\bitcoin_cycles\\2017-01-06.json",
+      "sha256": "21c2a0fafedb6e2ba0fb71a540eeec28c8145e072182c9d2877d525f79b4e68a"
+    },
+    {
+      "file": "data\\raw\\bitcoin_cycles\\2017-09-13.json",
+      "sha256": "658c1bcfb77095e959f60acfbbf501810b3e85c7fe9e0d54e74c820e40ff8618"
+    },
+    {
+      "file": "data\\raw\\bitcoin_cycles\\2018-05-21.json",
+      "sha256": "abf08aad6a2d04fc11144682d263bab5039e6071b5b61aa4ec0c46f01a0f000d"
+    },
+    {
+      "file": "data\\raw\\bitcoin_cycles\\2019-01-26.json",
+      "sha256": "46c583614ca4a203bb2a52571d0e9511b8e6eebcb64a80be51c1aa738d427882"
+    },
+    {
+      "file": "data\\raw\\bitcoin_cycles\\2019-10-03.json",
+      "sha256": "a905145d5701b5d4ead5354a7e23d30c8fa1899b8f87ffa621aaea76bf2700a8"
+    },
+    {
+      "file": "data\\raw\\bitcoin_cycles\\2020-06-09.json",
+      "sha256": "ce4272a2283ecd2e9636092c5b374629003d523387aa3494441a3473ef0e89b3"
+    },
+    {
+      "file": "data\\raw\\bitcoin_cycles\\2021-02-14.json",
+      "sha256": "0594db6217c2b59494a46eda08d69963fdb4d141b2432a6efff46d1b3cf030ab"
+    },
+    {
+      "file": "data\\raw\\bitcoin_cycles\\2021-10-22.json",
+      "sha256": "4f2c484001affe6ff953cf475e6860fb77b5d5432bebf266eb4a3492071c89e2"
+    },
+    {
+      "file": "data\\raw\\bitcoin_cycles\\2022-06-29.json",
+      "sha256": "de952ff2b664717d1f628291d63cb52683d5ab106223ed20f351232b16df0de0"
+    },
+    {
+      "file": "data\\raw\\bitcoin_cycles\\2023-03-06.json",
+      "sha256": "f33ae1fbb835ab43557bfe9bfc806c196012ad44a7335decc786394d5b5757b6"
+    },
+    {
+      "file": "data\\raw\\bitcoin_cycles\\2023-11-11.json",
+      "sha256": "17a2046ea8946ccf5d8a233999522d227922bdeba1bec15a4ef71b67e82db9a4"
+    },
+    {
+      "file": "data\\raw\\bitcoin_cycles\\2024-07-18.json",
+      "sha256": "001f3f67bba25d8ba58e8e4e5232733f912583d76d428ad73a3abc6354ab5555"
+    },
+    {
+      "file": "data\\raw\\bitcoin_cycles\\2025-03-25.json",
+      "sha256": "f405edf44df42a578c2054c48d4a378fd0a1281ecd3c3b804e5bfab50616539d"
+    },
+    {
+      "file": "data\\raw\\bitcoin_cycles\\2025-11-30.json",
+      "sha256": "42ee55d0a7e019d023e764b8827a0a6076fccf7ede71c4df758098adb8da2f1a"
+    }
+  ],
+  "engine_sha256": "4152e2e9ff09d749a12727ab9acf72a1b6eccf0666bc5d14230c99a287d2ea2d"
+}

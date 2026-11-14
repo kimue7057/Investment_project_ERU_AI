@@ -15,4 +15,5 @@ data/raw
 data/normalized
 data/runtime
 supabase/.temp
+prototypes
 data/metadata/*PRIVATE*
