@@ -182,7 +182,9 @@ class BitcoinService:
                 cycle=min(2,int(s["elapsed"]//100));progress=s["elapsed"]-cycle*100
                 run=self.engine.runs[cycle];count=len(run["history"])-1
                 next_event=next((e for e in run["highlights"] if e["at_idx"]/count*100>progress+.05),None)
-                s["elapsed"]=cycle*100+next_event["at_idx"]/count*100 if next_event else (cycle+1)*100
+                # 이진 부동소수점의 경계 바로 아래로 내림되어 선택한 장면이
+                # 보이지 않는 일을 막는다. 한 일봉보다 훨씬 작은 여유만 둔다.
+                s["elapsed"]=min((cycle+1)*100,cycle*100+(next_event["at_idx"]+1e-6)/count*100) if next_event else (cycle+1)*100
                 s["status"]="finished" if s["elapsed"]>=300 else "paused"
         return self.change(request,sid,apply)
 

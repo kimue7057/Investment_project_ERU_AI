@@ -16,3 +16,6 @@
 @media(max-width:800px){.email-panel{padding:30px;gap:30px}.email-panel h2{font-size:23px}}
 @media(max-width:600px){.email-panel{grid-template-columns:minmax(0,1fr);gap:26px;padding:26px 23px;margin-top:28px}.email-panel h2{font-size:24px}.email-panel>div>p{font-size:11px;margin-top:15px}.email-panel .field{font-size:11px}.splash-content img{height:185px;max-width:185px}.splash-wordmark{font-size:38px}.splash-tag{font-size:7px;letter-spacing:1.5px}.splash-content p{font-size:11px}.splash-orbit{width:330px;height:330px}.splash-skip{font-size:11px}.cycle-duration{margin:22px 0}.review-timeline small{font-size:8px}.global-error{padding:15px;font-size:11px;gap:10px}.global-error button{font-size:10px}.btn{min-height:48px}.text-link{min-height:40px}}
 @media(prefers-reduced-motion:reduce){#splash,#splash *{animation:none!important;transition:none!important}}
+
+body.is-busy:after{content:"";position:fixed;top:0;left:0;width:100%;height:3px;z-index:110;background:linear-gradient(90deg,transparent,#f4b04c,transparent);animation:request-loading .9s linear infinite}body.is-busy main{cursor:progress}@keyframes request-loading{from{transform:translateX(-70%)}to{transform:translateX(70%)}}
+@media(prefers-reduced-motion:reduce){body.is-busy:after{animation:none;background:#f4b04c}}

@@ -74,6 +74,17 @@ def test_input_validation_finish_and_records_do_not_accept_client_results(btc_ap
     assert records[0]['id']==sid and set(records[0])=={'id','amount','elapsed','status','created_at'}
 
 
+def test_next_scene_reveals_the_selected_event_at_daily_boundary(btc_app):
+    c,_,_=btc_app;sid=start(c);url='/api/bitcoin/sessions/'+sid
+    c.post(url+'/playback',json={"action":"pause"})
+    expected=main.bitcoin_service.engine.runs[0]['highlights'][0]
+    result=c.post(url+'/playback',json={"action":"next"})
+    assert result.status_code==200
+    visible=result.json()['cycles'][0]['events']
+    assert any(e['id']==expected['id'] for e in visible)
+    assert result.json()['status']=='paused'
+
+
 def test_email_unconfigured_is_truthful_and_requires_consent(btc_app,monkeypatch):
     c,_,_=btc_app;sid=start(c);url='/api/bitcoin/sessions/'+sid+'/email'
     monkeypatch.delenv('RESEND_FROM_EMAIL',raising=False)
