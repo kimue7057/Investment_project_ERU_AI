@@ -6,7 +6,6 @@ import {createViews} from './views';
 const app=document.getElementById('app');
 const LOGO='/assets/riskguard-logo.webp';
 const LAST='eru-btc-last-session-v1';
-const SPLASH='eru-btc-splash-v1';
 const cycles=[
   {name:'1차 사이클',period:'2016.07 - 2020.04'},
   {name:'2차 사이클',period:'2020.05 - 2023.06'},
@@ -34,7 +33,7 @@ function chart(c,{mini=false,markers=false}={}){
   const data=state.run?.cycles[c];const history=data?.history||[];
   if(!history.length)return `<div class="chart-empty">${t('The asset chart appears as this cycle progresses.','해당 구간을 진행하면 자산 곡선이 나타나요.')}</div>`;
   const mobile=matchMedia('(max-width:600px)').matches;
-  const width=mini?340:820,height=mini?100:mobile?440:320,left=mini?2:mobile?130:70,right=mini?2:16,top=mini?8:20,bottom=mini?7:34;
+  const width=mini?340:820,height=mini?100:400,left=mini?2:mobile?130:70,right=mini?2:16,top=mini?8:20,bottom=mini?7:34;
   const w=width-left-right,h=height-top-bottom,max=Math.max(...history.map(p=>Math.max(p.hold,p.guard)))*1.12;
   const x=p=>left+w*p.position/100,y=v=>top+h-v/max*h;
   const path=key=>history.map((p,i)=>(i?'L':'M')+x(p).toFixed(2)+','+y(p[key]).toFixed(2)).join(' ');
@@ -64,7 +63,7 @@ function render(){
   if(state.booting){app.innerHTML=`<div class="page"><section class="empty-state"><div class="loading-ring"></div><h2>${t('Preparing your market','시장을 준비하고 있어요')}</h2><p>${t('Checking verified data and saved records.','검증된 데이터와 이전 기록을 확인해요.')}</p></section></div>`;return;}
   app.innerHTML=errorBox()+({home,amount,simulation,results,review,records:recordsPage,settings}[page])();app.className='screen-enter';
   const timeline=app.querySelector('.review-timeline'),selected=timeline?.querySelector('.active');if(selected)timeline.scrollLeft=selected.offsetLeft-timeline.offsetLeft-timeline.clientWidth/2+selected.clientWidth/2;
-  if(page!==lastRoute){window.scrollTo({top:0,behavior:'instant'});app.focus({preventScroll:true});lastRoute=page;}
+  if(page!==lastRoute){if(!matchMedia('(prefers-reduced-motion:reduce)').matches)app.animate([{opacity:.3,transform:'translateY(8px)'},{opacity:1,transform:'translateY(0)'}],{duration:180,easing:'ease-out'});app.scrollTo({top:0,behavior:'instant'});app.focus({preventScroll:true});lastRoute=page;}
   document.title=({home:t('Bitcoin Risk Guard','비트코인 리스크 가드'),amount:t('Your capital','내 투자금'),simulation:t('Live comparison','자동 비교'),results:t('Your results','비교 결과'),review:t('Response review','대응 복기'),records:t('Your records','내 기록'),settings:t('Settings','설정')}[page])+' · ERU AI';
   schedulePoll();
 }
@@ -102,11 +101,23 @@ function flow(){return modal(t('Your comparison journey','투자금부터 대응
 ['Review responses','대응 복기','Explore signals, simulated trades and asset changes.','신호·모의 체결·자산 변화를 확인해요.']
 ].map(([en,ko,ed,kd],i)=>`<li><span>0${i+1}</span><div><b>${t(en,ko)}</b><p>${t(ed,kd)}</p></div></li>`).join('')}</ol><button class="btn dark wide" data-action="start-from-flow">${t('Start with my capital','내 투자금으로 시작')} →</button>`);}
 function allEvents(){const d=cycleData();return modal(t('All simulated responses','모의 대응 내역 전체 보기'),`<p>${cycleName(state.cycle)} · ${d.all_events.length} ${t('responses','개 대응')}</p><div class="events-scroll"><table class="all-events"><thead><tr><th>${t('Signal / execution','판단 / 체결')}</th><th>${t('Response','대응')}</th><th>${t('Trade value','거래금액')}</th><th>${t('Fee','수수료')}</th></tr></thead><tbody>${d.all_events.map(e=>`<tr><td>${e.signal_at}<br>${e.kind==='wait'?t('No order','주문 없음'):e.at}</td><td>${typeLabel(e.kind)}${e.stage?' · '+e.stage:''}</td><td>${money(e.trade_value)}</td><td>${money(e.fee)}</td></tr>`).join('')}</tbody></table></div><p class="fine">${t('Values are KRW-equivalent indices. Waiting does not execute a trade or incur a fee.','금액은 원화 환산 지수예요. 매수 보류는 체결이 아니며 수수료가 없어요.')}</p>`);}
+let splashTimer,splashExitTimer,splashFocus;
 function splash(){
-  let seen=false;try{seen=sessionStorage.getItem(SPLASH)==='1';}catch{}if(seen||location.hash&&location.hash!=='#home'||matchMedia('(prefers-reduced-motion:reduce)').matches)return;
-  const root=document.getElementById('splash');document.body.style.overflow='hidden';root.hidden=false;root.innerHTML=`<button data-action="skip-splash" class="splash-skip">${t('Skip intro','바로 시작')} ↗</button><div class="splash-orbit"></div><div class="splash-content"><img src="${LOGO}" alt="ERU AI Risk Guard"><div class="splash-wordmark">ERU AI</div><div class="splash-tag">RISK GUARD FOR DIGITAL ASSETS</div><div class="splash-line"></div><p>${t('Through the fall. Toward the next decision.','하락을 지나, 다음 판단으로.')}</p></div>`;document.querySelector('.site-header').inert=true;document.querySelector('.bottom-nav').inert=true;app.inert=true;setTimeout(closeSplash,2600);
+  clearTimeout(splashTimer);clearTimeout(splashExitTimer);
+  const root=document.getElementById('splash'),reduced=matchMedia('(prefers-reduced-motion:reduce)').matches;
+  splashFocus=document.activeElement;root.setAttribute('aria-label',t('Risk Guard intro','리스크 가드 인트로'));root.hidden=false;root.classList.remove('leaving','video-ready');
+  root.innerHTML=`<div class="splash-fallback"><img src="${LOGO}" alt=""><b>RISK GUARD</b><span>ERU AI</span></div>${reduced?'':`<video class="splash-video" autoplay muted playsinline preload="auto" aria-hidden="true"><source src="/assets/riskguard-intro.mp4" type="video/mp4"></video>`}<button data-action="skip-splash" class="splash-skip">${t('Skip','건너뛰기')} ↗</button><div class="splash-caption"><p>${t('Clarity through volatility.','변동 속에서, 더 선명한 판단으로.')}</p><span>BY ERUTY</span></div>`;
+  document.querySelector('.app-shell').inert=true;root.querySelector('button').focus({preventScroll:true});
+  const video=root.querySelector('video');
+  if(video){video.muted=true;video.addEventListener('playing',()=>root.classList.add('video-ready'),{once:true});video.addEventListener('ended',closeSplash,{once:true});video.addEventListener('error',()=>{root.classList.remove('video-ready');splashTimer=setTimeout(closeSplash,2200);},{once:true});video.play().catch(()=>{splashTimer=setTimeout(closeSplash,2600);});}
+  splashTimer=setTimeout(closeSplash,reduced?1400:6500);
 }
-function closeSplash(){const root=document.getElementById('splash');if(root.hidden)return;root.classList.add('leaving');document.body.style.overflow='';try{sessionStorage.setItem(SPLASH,'1');}catch{}document.querySelector('.site-header').inert=false;document.querySelector('.bottom-nav').inert=false;app.inert=false;setTimeout(()=>{root.hidden=true;root.innerHTML='';},400);}
+function closeSplash(){
+  const root=document.getElementById('splash');if(root.hidden||root.classList.contains('leaving'))return;
+  clearTimeout(splashTimer);root.querySelector('video')?.pause();root.classList.add('leaving');document.querySelector('.app-shell').inert=false;
+  if(splashFocus?.isConnected&&!root.contains(splashFocus))splashFocus.focus({preventScroll:true});else app.focus({preventScroll:true});
+  splashExitTimer=setTimeout(()=>{root.hidden=true;root.classList.remove('video-ready');root.innerHTML='';},300);
+}
 document.addEventListener('input',e=>{if(e.target.id==='amount-input'){const raw=e.target.value.replaceAll(',','').trim();if(/^\d+$/.test(raw)&&Number.isSafeInteger(Number(raw)))state.amountDraft=Number(raw);}});
 document.addEventListener('submit',async e=>{
   if(e.target.id==='amount-form'){e.preventDefault();const raw=document.getElementById('amount-input').value.replaceAll(',','').trim(),n=Number(raw);if(!/^\d+$/.test(raw)||!Number.isSafeInteger(n)||n<10000||n>10000000000){document.getElementById('amount-error').textContent=t('Enter a whole number from ₩10,000 to ₩10 billion.','1만 원부터 100억 원까지 숫자로 입력해 주세요.');return;}state.amountDraft=n;await perform(async()=>{if(state.run?.status==='running')await api('/sessions/'+state.run.id+'/playback',{action:'pause'});const run=await api('/sessions',{amount:n});state.cycle=0;state.event=0;receive(run,{follow:true});await navigate('simulation');});}
@@ -115,7 +126,7 @@ document.addEventListener('submit',async e=>{
 document.addEventListener('click',async e=>{
   const link=e.target.closest('a[href^="#"]');if(link){e.preventDefault();await perform(()=>navigate(link.hash.slice(1)||'home'));return;}
   if(e.target.classList.contains('modal-backdrop'))return closeModal();const el=e.target.closest('[data-action]');if(!el||el.disabled)return;const a=el.dataset.action;
-  if(a==='skip-splash'){closeSplash();return;}if(a==='close-modal'){closeModal();return;}if(a==='dismiss-error'){state.error='';render();return;}
+  if(a==='intro'){splash();return;}if(a==='skip-splash'){closeSplash();return;}if(a==='close-modal'){closeModal();return;}if(a==='dismiss-error'){state.error='';render();return;}
   if(a==='language'){const input=document.getElementById('amount-input');if(input){const value=Number(input.value.replaceAll(',',''));if(Number.isSafeInteger(value))state.amountDraft=value;}setLanguage(el.dataset.language);render();return;}
   if(a==='preset'){state.amountDraft=Number(el.dataset.amount);document.getElementById('amount-input').value=state.amountDraft.toLocaleString('ko-KR');document.getElementById('amount-error').textContent='';app.querySelectorAll('[data-action="preset"]').forEach(x=>x.classList.toggle('selected',x===el));return;}
   await perform(async()=>{
@@ -127,7 +138,7 @@ document.addEventListener('click',async e=>{
     else if(a==='event'){const i=Number(el.dataset.index);if(route()==='simulation'){const ev=eventText(cycleData().events[i]);await modal(ev.title,`<p>${ev.action}</p><p class="fine" style="margin-top:18px">${t('Signal','판단')} ${ev.signal_at} · ${ev.kind==='wait'?t('No execution','체결 없음'):t('Simulated execution ','모의 체결 ')+ev.at}</p>`);}else chooseEvent(i);}
     else if(a==='event-info'){const ev=eventText(cycleData().events.find(x=>x.id===el.dataset.id));if(ev)await modal(ev.title,`<p>${ev.action}</p>`);}
     else if(a==='previous-review')chooseEvent(state.event-1);else if(a==='next-review')chooseEvent(state.event+1);else if(a==='first-buy'){const i=cycleData().events.findIndex(x=>x.kind==='buy');if(i>=0)chooseEvent(i);else toast(t('No re-entry is included in this cycle’s highlights. Check all responses.','이 구간의 주요 장면에 재매수가 없어요. 전체 대응 내역을 확인해 주세요.'));}
-    else if(a==='all-events')await allEvents();else if(a==='next-cycle-review'){state.cycle=(state.cycle+1)%3;state.event=0;remember();render();window.scrollTo({top:0,behavior:'smooth'});}
+    else if(a==='all-events')await allEvents();else if(a==='next-cycle-review'){state.cycle=(state.cycle+1)%3;state.event=0;remember();render();app.scrollTo({top:0,behavior:'smooth'});}
     else if(a==='results')await navigate('results');else if(a==='records')await navigate('records');
     else if(a==='open-record'||a==='review-record'){const g=await api('/sessions/'+el.dataset.id);receive(g);state.cycle=0;state.event=0;await navigate(a==='review-record'?'review':g.status==='finished'?'results':'simulation');}
     else if(a==='retry'){pollFailures=0;state.config=await api('/config');if(!state.config.ready)throw new Error('검증된 데이터를 준비하고 있어요. 잠시 후 다시 시도해 주세요.');if(state.run)receive(await api('/sessions/'+state.run.id+'?view='+state.cycle));state.error='';render();}

@@ -2,21 +2,26 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content"/>
   <meta name="referrer" content="no-referrer"/>
-  <meta name="theme-color" content="#f6f7fb"/>
+  <meta name="theme-color" content="#0c121e"/>
   <meta name="description" content="Compare Bitcoin buy-and-hold with Risk Guard across three historical cycles."/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
-  <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="RiskGuard"/>
+  <link rel="manifest" href="/manifest.webmanifest"/>
+  <link rel="apple-touch-icon" href="/assets/riskguard-icon-192.png"/>
   <link rel="icon" href="/assets/riskguard-logo.webp"/>
   <title>Bitcoin Risk Guard · ERU AI</title>
 </head>
 <body>
-  <header class="site-header"><div class="header-inner"><button id="header-back" class="icon-button" data-action="back" aria-label="Back" hidden>‹</button><a href="#home" class="brand" aria-label="ERU AI Risk Guard"><img src="/assets/riskguard-logo.webp" alt=""><span>ERU AI<small>RISK GUARD</small></span></a><button id="header-language" class="language-pill" data-action="settings" aria-label="Language settings">EN</button></div></header>
+  <div class="app-shell">
+  <header class="site-header"><div class="header-inner"><button id="header-back" class="icon-button" data-action="back" aria-label="Back" hidden>‹</button><a href="#home" class="brand" aria-label="ERU AI Risk Guard"><img src="/assets/riskguard-logo.webp" alt=""><span>RiskGuard<small>ERU AI</small></span></a><button id="header-language" class="language-pill" data-action="settings" aria-label="Language settings">EN</button></div></header>
   <main id="app" tabindex="-1"></main>
   <footer class="site-footer">Historical simulation · No real trades · © ERUTY</footer>
   <nav class="bottom-nav" id="app-navigation" aria-label="App navigation"></nav>
-  <div id="splash" hidden></div><div id="modal-root"></div><div id="toast" role="status" aria-live="polite"></div>
+  </div>
+  <div id="splash" role="dialog" aria-modal="true" aria-label="Risk Guard intro" hidden></div><div id="modal-root"></div><div id="toast" role="status" aria-live="polite"></div>
   <noscript>Please enable JavaScript to use the simulator. / JavaScript를 켜 주세요.</noscript>
   <script type="module" src="/src/bitcoin/main.js"></script>
 </body>
