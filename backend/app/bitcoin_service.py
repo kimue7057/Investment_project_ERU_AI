@@ -41,6 +41,7 @@ class SendReport(Strict):
     email: str=Field(min_length=3,max_length=254,pattern=r"^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$")
     consent: Literal[True]
     website: str=Field(default="",max_length=0)
+    locale: Literal["en","ko"]="ko"
 
     @field_validator("email",mode="before")
     @classmethod
@@ -229,7 +230,9 @@ class BitcoinService:
                 self.quota("email-recipient",digest,86400,3)
                 self.quota("email-visitor",state["visitor_hash"],3600,4)
                 self.quota("email-global","all",86400,100)
-            message_id=self.mailer.send(body.email,self.engine.public(state))
+            report=self.engine.public(state)
+            report["locale"]=body.locale
+            message_id=self.mailer.send(body.email,report)
         except HTTPException:
             def release(s):
                 if s.get("email_pending",{}).get("lease")==lease:s.pop("email_pending",None)

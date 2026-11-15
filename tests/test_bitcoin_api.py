@@ -92,6 +92,29 @@ def test_email_unconfigured_is_truthful_and_requires_consent(btc_app,monkeypatch
     assert c.post(url,json={"email":"bad","consent":True}).status_code==422
     assert c.post(url,json={"email":"a@example.test","consent":True,"website":"bot"}).status_code==422
     assert c.post(url,json={"email":"a@example.test","consent":True}).status_code==503
+    assert c.post(url,json={"email":"a@example.test","consent":True,"locale":"zh"}).status_code==422
+
+
+def test_sgd_capital_and_report_locale_preserve_canonical_ledger(btc_app,monkeypatch):
+    c,_,_=btc_app
+    r=c.post('/api/bitcoin/sessions',json={"amount":"103807249.23"})
+    assert r.status_code==200
+    sid=r.json()['id'];base='/api/bitcoin/sessions/'+sid
+    result=c.post(base+'/playback',json={"action":"finish"}).json()
+    assert result['amount']==103807249.23
+    monkeypatch.setenv('RESEND_API_KEY','re_test_only')
+    monkeypatch.setenv('RESEND_FROM_EMAIL','ERU AI <report@example.test>')
+    sent=[]
+    def handler(req):
+        payload=json.loads(req.content)
+        assert 'S$100,000.00' in payload['html'] and 'lang="en"' in payload['html']
+        assert 'Your Bitcoin comparison' in payload['subject']
+        sent.append(payload)
+        return httpx.Response(200,json={"id":"test-sgd-report"})
+    monkeypatch.setattr(main.bitcoin_service.mailer,'client',httpx.Client(transport=httpx.MockTransport(handler)))
+    assert c.post(base+'/email',json={"email":"sgd@example.test","consent":True,"locale":"en"}).status_code==200
+    after=c.get(base).json()
+    assert after['amount']==result['amount'] and after['cycles']==result['cycles'] and len(sent)==1
 
 
 def test_report_is_server_generated_idempotent_and_not_an_open_relay(btc_app,monkeypatch):

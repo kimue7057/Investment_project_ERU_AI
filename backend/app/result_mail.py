@@ -8,6 +8,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import HTTPException
+from .display_currency import sgd_money, KRW_PER_SGD, REFERENCE_DATE
 
 COMPANY_PDF = Path(__file__).resolve().parents[2]/"data/company/eruty-company-introduction.pdf"
 
@@ -17,6 +18,8 @@ def money(value):
 
 
 def report_content(report):
+    if report.get("locale")=="en":
+        return english_report_content(report)
     rows=[]
     plain=["ERU AI 비트코인 리스크 가드 비교 결과", "입력 자금: "+money(report["amount"]),""]
     for cycle in report["cycles"]:
@@ -50,6 +53,43 @@ def report_content(report):
     return body,"\n".join(plain)
 
 
+def english_report_content(report):
+    rows=[]
+    plain=["ERU AI Bitcoin Risk Guard results","Starting capital: "+sgd_money(report["amount"]),""]
+    for i,cycle in enumerate(report["cycles"]):
+        m=cycle["metrics"];h=m["hold"];g=m["guard"]
+        name=f"Cycle {i+1}"
+        dates=html.escape(cycle["start"]+" – "+cycle["end"])
+        rows.append(f'''<tr><td style="padding:16px 8px;border-bottom:1px solid #dce3ee"><b>{name}</b><br><small>{dates}</small></td>
+        <td style="padding:16px 8px;border-bottom:1px solid #dce3ee">{sgd_money(h['value'])}<br><small>Max drawdown {h['mdd_pct']:.1f}%</small></td>
+        <td style="padding:16px 8px;border-bottom:1px solid #dce3ee">{sgd_money(g['value'])}<br><small>Max drawdown {g['mdd_pct']:.1f}%</small></td></tr>''')
+        plain.extend([name+" ("+cycle["start"]+" – "+cycle["end"]+")",
+            f"Buy & hold: {sgd_money(h['value'])} / max drawdown {h['mdd_pct']:.1f}%",
+            f"Risk Guard: {sgd_money(g['value'])} / max drawdown {g['mdd_pct']:.1f}%",
+            "Final asset difference (guard − hold): "+sgd_money(m["difference"]),""])
+    explanation=(f"Amounts are displayed in SGD using a fixed ECB cross-rate dated {REFERENCE_DATE}: "
+        f"S$1 = KRW {KRW_PER_SGD:.2f}. Each cycle starts independently with the same capital and 100% Bitcoin. "
+        "Official BTC-USD daily price changes are applied with a 0.05% fee per side. Decisions use completed daily candles; "
+        "execution occurs at the next daily open. Historical FX movements, cash interest and slippage are excluded. "
+        "Maximum drawdown is each account’s largest daily fall from its own peak. Lower drawdown does not guarantee higher final assets. "
+        "The attached brochure covers a different portfolio from this Bitcoin-only simulation. Past results do not guarantee future returns.")
+    company=("ERUTY connects investment analysis with system development. We design systems for analysis, monitoring and service integration "
+        "using market data and investment workflows. This comparison is a historical simulation with no real deposit or exchange orders.")
+    body=f'''<!doctype html><html lang="en"><body style="margin:0;background:#f1f4f9;font-family:Arial,sans-serif;color:#14203b">
+    <div style="max-width:680px;margin:auto;background:white"><div style="padding:32px;background:#09142f;color:white">
+    <b style="color:#f4b04c">ERU AI / RISK GUARD</b><h1 style="font-size:25px">Your three Bitcoin cycles</h1>
+    <p>Starting capital {sgd_money(report['amount'])} · SGD</p></div><div style="padding:28px">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;line-height:1.8"><thead><tr><th align="left">Cycle</th><th align="left">Buy &amp; hold</th><th align="left">Risk Guard</th></tr></thead><tbody>{''.join(rows)}</tbody></table>
+    <h2 style="font-size:18px">Reading your results</h2><p style="font-size:12px;line-height:1.9;color:#657089">{explanation}</p>
+    <h2 style="font-size:18px">About ERUTY</h2><p style="font-size:13px;line-height:1.9">{company}</p>
+    <a href="https://www.eruty.co.kr">Company website</a> · <a href="mailto:yusung@eruty.co.kr">Contact ERUTY</a>
+    <p style="font-size:11px;color:#657089">The company introduction is attached in its original Korean edition.</p>
+    <p style="font-size:11px;color:#8a95aa">This report and company introduction were requested once. No marketing subscription was created.</p>
+    </div></div></body></html>'''
+    plain.extend([explanation,"","About ERUTY",company,"https://www.eruty.co.kr","Contact: yusung@eruty.co.kr","Company introduction attached in its original Korean edition."])
+    return body,"\n".join(plain)
+
+
 class ResultMailer:
     def __init__(self,client=None):
         self.client=client or httpx.Client(timeout=25,follow_redirects=False)
@@ -67,7 +107,7 @@ class ResultMailer:
         body,text=report_content(report)
         identity=hashlib.sha256(recipient.encode()).hexdigest()
         payload={"from":os.environ["RESEND_FROM_EMAIL"],"to":[recipient],
-            "subject":"[ERU AI] 내 비트코인 비교 결과와 회사 소개","html":body,"text":text,
+            "subject":"[ERU AI] Your Bitcoin comparison & ERUTY" if report.get("locale")=="en" else "[ERU AI] 내 비트코인 비교 결과와 회사 소개","html":body,"text":text,
             "attachments":[{"filename":"ERUTY_Company_Introduction.pdf", "content":base64.b64encode(COMPANY_PDF.read_bytes()).decode()}]}
         try:
             response=self.client.post("https://api.resend.com/emails",json=payload,headers={
