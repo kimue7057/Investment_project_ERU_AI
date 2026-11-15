@@ -16,6 +16,7 @@ export function parseAmount(text,locale,current){
  const denominator=BigInt(FX.denominator),krwCents=(cents*BigInt(FX.numerator)+denominator/2n)/denominator;
  return krwCents<=BigInt(Number.MAX_SAFE_INTEGER)?Number(krwCents)/100:null;
 }
+export const defaultCapital=locale=>locale==='ko'?100000000:parseAmount('100000.00','en');
 export function amountLimits(locale){return locale==='ko'?[10000,10000000000]:[Math.ceil(10000/krwPerSgd*100)/100,Math.floor(10000000000/krwPerSgd*100)/100];}
 export function presets(locale){return locale==='ko'?[1e7,5e7,1e8]:[1e4,5e4,1e5].map(n=>parseAmount(n.toFixed(2),'en'));}
 export function formatMoney(krw,locale){

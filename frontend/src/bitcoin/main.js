@@ -1,4 +1,4 @@
-import {FX,krwPerSgd,currencyCode,inputAmount,parseAmount,amountLimits} from './currency';
+import {FX,krwPerSgd,currencyCode,inputAmount,parseAmount,amountLimits,defaultCapital} from './currency';
 import './styles.css';
 import {markerLayout} from '../reviewModel';
 import {t,lang,setLanguage,cycleName,money,typeLabel,eventText,errorText} from './i18n';
@@ -12,7 +12,7 @@ const cycles=[
   {name:'2차 사이클',period:'2020.05 - 2023.06'},
   {name:'3차 사이클',period:'2023.07 - 2026.05'},
 ];
-const state={config:null,run:null,amountDraft:100000000,cycle:0,event:0,busy:false,records:[],error:'',booting:true};
+const state={config:null,run:null,amountDraft:defaultCapital(lang()),amountEdited:false,cycle:0,event:0,busy:false,records:[],error:'',booting:true};
 let pollTimer,pollPromise=null,pollFailures=0,lastRoute='',previousFocus=null,toastTimer,chartSerial=0;
 const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const signed=n=>(n>0?'+':'')+money(n);
@@ -28,7 +28,7 @@ async function api(path,body,keepalive=false){
   return data;
 }
 function remember(){if(!state.run)return;try{localStorage.setItem(LAST,state.run.id);sessionStorage.setItem('eru-btc-view-'+state.run.id,JSON.stringify({cycle:state.cycle,event:state.event}));}catch{}}
-function receive(run,{follow=false}={}){state.run=run;state.amountDraft=run.amount;if(follow||state.cycle>run.current_cycle)state.cycle=run.view_cycle;state.event=Math.min(state.event,Math.max(0,(cycleData()?.events.length||1)-1));remember();}
+function receive(run,{follow=false}={}){state.run=run;if(follow||state.cycle>run.current_cycle)state.cycle=run.view_cycle;state.event=Math.min(state.event,Math.max(0,(cycleData()?.events.length||1)-1));remember();}
 function errorBox(){return state.error?`<div class="global-error" role="alert"><span>${escape(errorText(state.error))}</span><button data-action="retry">${t('Try again','다시 연결')}</button><button data-action="dismiss-error" aria-label="${t('Dismiss error','오류 닫기')}">×</button></div>`:'';}
 function chart(c,{mini=false,markers=false}={}){
   const data=state.run?.cycles[c];const history=data?.history||[];
@@ -119,7 +119,7 @@ function closeSplash(){
   if(splashFocus?.isConnected&&!root.contains(splashFocus))splashFocus.focus({preventScroll:true});else app.focus({preventScroll:true});
   splashExitTimer=setTimeout(()=>{root.hidden=true;root.classList.remove('video-ready');root.innerHTML='';},300);
 }
-document.addEventListener('input',e=>{if(e.target.id==='amount-input'){const n=parseAmount(e.target.value,lang());if(n!==null)state.amountDraft=n;document.getElementById('amount-error').textContent='';}});
+document.addEventListener('input',e=>{if(e.target.id==='amount-input'){state.amountEdited=true;const n=parseAmount(e.target.value,lang());if(n!==null)state.amountDraft=n;document.getElementById('amount-error').textContent='';}});
 document.addEventListener('submit',async e=>{
   if(e.target.id==='amount-form'){e.preventDefault();const n=parseAmount(document.getElementById('amount-input').value,lang(),state.amountDraft);if(n===null||n<10000||n>10000000000){const [min,max]=amountLimits('en');document.getElementById('amount-error').textContent=t(`Enter S$${min.toFixed(2)} to S$${max.toLocaleString('en-SG',{minimumFractionDigits:2})}, with up to 2 decimal places.`,'1만 원부터 100억 원까지 숫자로 입력해 주세요.');return;}state.amountDraft=n;await perform(async()=>{if(state.run?.status==='running')await api('/sessions/'+state.run.id+'/playback',{action:'pause'});const run=await api('/sessions',{amount:n.toFixed(2)});state.cycle=0;state.event=0;receive(run,{follow:true});await navigate('simulation');});}
   if(e.target.id==='report-form'){e.preventDefault();if(!state.run||state.run.status!=='finished')return;const email=document.getElementById('report-email').value.trim(),consent=document.getElementById('report-consent').checked,website=document.getElementById('report-website').value;if(!consent)return;const button=e.target.querySelector('button[type="submit"]'),status=document.getElementById('email-status');button.disabled=true;button.textContent=t('Submitting…','메일 발송 접수 중…');try{await api('/sessions/'+state.run.id+'/email',{email,consent,website,locale:lang()});status.textContent=t('Your report was accepted for delivery. Check your inbox and spam folder.','결과와 회사 소개 메일의 발송을 접수했어요. 받은편지함과 스팸함을 확인해 주세요.');button.textContent=t('Request accepted','발송 접수 완료');}catch(err){status.textContent=errorText(err.message);button.disabled=!state.config?.email_ready;button.textContent=t('Try again','다시 요청하기');}}
@@ -128,8 +128,8 @@ document.addEventListener('click',async e=>{
   const link=e.target.closest('a[href^="#"]');if(link){e.preventDefault();await perform(()=>navigate(link.hash.slice(1)||'home'));return;}
   if(e.target.classList.contains('modal-backdrop'))return closeModal();const el=e.target.closest('[data-action]');if(!el||el.disabled)return;const a=el.dataset.action;
   if(a==='intro'){splash();return;}if(a==='skip-splash'){closeSplash();return;}if(a==='close-modal'){closeModal();return;}if(a==='dismiss-error'){state.error='';render();return;}
-  if(a==='language'){setLanguage(el.dataset.language);render();return;}
-  if(a==='preset'){state.amountDraft=Number(el.dataset.amount);document.getElementById('amount-input').value=inputAmount(state.amountDraft,lang());document.getElementById('amount-error').textContent='';app.querySelectorAll('[data-action="preset"]').forEach(x=>x.classList.toggle('selected',x===el));return;}
+  if(a==='language'){setLanguage(el.dataset.language);if(!state.amountEdited)state.amountDraft=defaultCapital(lang());render();return;}
+  if(a==='preset'){state.amountEdited=true;state.amountDraft=Number(el.dataset.amount);document.getElementById('amount-input').value=inputAmount(state.amountDraft,lang());document.getElementById('amount-error').textContent='';app.querySelectorAll('[data-action="preset"]').forEach(x=>x.classList.toggle('selected',x===el));return;}
   await perform(async()=>{
     if(a==='settings')await navigate('settings');else if(a==='back')await navigate(({amount:'home',simulation:'amount',review:'results',results:'home',records:'home',settings:'home'})[route()]||'home');else if(a==='begin')await navigate('amount');else if(a==='method')await method();else if(a==='flow')await flow();else if(a==='start-from-flow'){closeModal();await navigate('amount');}
     else if(a==='play')await playback(state.run.status==='running'?'pause':'resume');else if(a==='speed')await playback('speed',Number(el.dataset.speed));else if(a==='next-event')await playback('next');else if(a==='finish')await playback('finish');else if(a==='resume'){await playback('resume');await navigate('simulation');}
