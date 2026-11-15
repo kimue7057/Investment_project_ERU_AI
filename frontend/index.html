@@ -1,21 +1,23 @@
 <!doctype html>
-<html lang="ko">
+<html lang="en">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
   <meta name="referrer" content="no-referrer"/>
-  <meta name="theme-color" content="#09142f"/>
-  <meta name="description" content="내 투자금으로 비트코인의 세 사이클을 비교하고, 리스크 가드의 대응과 자산 변화를 확인하세요."/>
+  <meta name="theme-color" content="#f6f7fb"/>
+  <meta name="description" content="Compare Bitcoin buy-and-hold with Risk Guard across three historical cycles."/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
   <link rel="icon" href="/assets/riskguard-logo.webp"/>
-  <title>ERU AI · 비트코인 리스크 가드</title>
+  <title>Bitcoin Risk Guard · ERU AI</title>
 </head>
 <body>
-  <div class="prototype-bar"><div class="wrap"><span><i></i> 비트코인 단독 비교 <b>과거 데이터 기반 모의 시뮬레이션</b></span><button data-action="method">계산 기준 ↗</button></div></div>
-  <header class="site-header"><div class="wrap header-inner"><a href="#home" class="brand" aria-label="ERU AI Risk Guard 홈"><img src="/assets/riskguard-logo.webp" alt=""><span>ERU AI<small>RISK GUARD</small></span></a><nav aria-label="주 메뉴"><a href="#home" data-nav="home">시뮬레이터</a><a href="#results" data-nav="results">사이클 결과</a><a href="#records" data-nav="records">내 기록</a></nav><button class="header-cta" data-action="begin">내 투자금으로 비교 ↗</button></div></header>
+  <header class="site-header"><div class="header-inner"><button id="header-back" class="icon-button" data-action="back" aria-label="Back" hidden>‹</button><a href="#home" class="brand" aria-label="ERU AI Risk Guard"><img src="/assets/riskguard-logo.webp" alt=""><span>ERU AI<small>RISK GUARD</small></span></a><button id="header-language" class="language-pill" data-action="settings" aria-label="Language settings">EN</button></div></header>
   <main id="app" tabindex="-1"></main>
-  <footer class="site-footer"><div class="wrap"><div class="footer-brand">ERUTY <span>Investment insight. Engineering execution.</span></div><p>과거 BTC-USD 공식 일봉으로 계산한 모의 결과입니다. 실제 입금이나 거래소 주문은 없습니다. 환율 변동·현금 이자·슬리피지는 미반영하며, 과거 결과가 미래 성과를 보장하지 않습니다.</p><div class="footer-bottom"><span>© ERUTY · ERU AI Risk Guard</span><button data-action="method">계산 기준</button><a href="https://www.eruty.co.kr" target="_blank" rel="noopener noreferrer">회사 소개 ↗</a></div></div></footer>
+  <footer class="site-footer">Historical simulation · No real trades · © ERUTY</footer>
+  <nav class="bottom-nav" id="app-navigation" aria-label="App navigation"></nav>
   <div id="splash" hidden></div><div id="modal-root"></div><div id="toast" role="status" aria-live="polite"></div>
-  <noscript>시뮬레이터를 사용하려면 JavaScript를 켜 주세요.</noscript>
+  <noscript>Please enable JavaScript to use the simulator. / JavaScript를 켜 주세요.</noscript>
   <script type="module" src="/src/bitcoin/main.js"></script>
 </body>
 </html>
