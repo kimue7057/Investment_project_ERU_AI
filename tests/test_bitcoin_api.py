@@ -197,7 +197,8 @@ def test_old_email_receipt_allows_one_upgraded_report_then_deduplicates(btc_app,
 def test_start_requires_email_consent_and_never_exposes_private_registration(btc_app):
     c,_,db=btc_app
     body={"amount":100000000,"email":" Reader@Example.test ","consent":True,"locale":"en"}
-    for bad in [{"amount":100000000},{**body,"email":"bad"},{**body,"consent":False},{**body,"website":"bot"},{**body,"locale":"zh"}]:
+    assert c.post('/api/bitcoin/sessions',json={"amount":100000000}).status_code==400
+    for bad in [{**body,"email":"bad"},{**body,"consent":False},{**body,"website":"bot"},{**body,"locale":"zh"}]:
         assert c.post('/api/bitcoin/sessions',json=bad).status_code==422
     r=c.post('/api/bitcoin/sessions',json=body);assert r.status_code==200
     g=r.json();d=g['report_delivery']
@@ -274,3 +275,64 @@ def test_delivery_active_lease_and_stale_lease_recovery(btc_app,monkeypatch):
     wall[0]+=61
     assert c.get(base).json()['report_delivery']['status']=='accepted' and sent==['reader@example.test']
     assert c.get(base).json()['report_delivery']['status']=='accepted' and len(sent)==1
+
+
+def test_separate_email_setup_persists_without_starting_or_exposing_address(btc_app):
+    c,_,db=btc_app
+    assert c.get('/api/bitcoin/contact').json()=={'registered':False}
+    assert c.post('/api/bitcoin/contact',json={'email':'reader@example.test','consent':False}).status_code==422
+    r=c.post('/api/bitcoin/contact',json={'email':' Reader@Example.test ','consent':True})
+    assert r.status_code==200 and r.json()=={'registered':True,'recipient':'r***@example.test'}
+    assert 'reader@example.test' not in r.text
+    assert next(x for x in c.cookies.jar if x.name==COOKIE).has_nonstandard_attr('HttpOnly')
+    assert c.get('/api/bitcoin/contact').json()==r.json()
+    assert c.get('/api/bitcoin/records').json()=={'records':[]}
+    assert db.execute("SELECT count(*) FROM sessions WHERE json_extract(state,'$.mode')='bitcoin_v1'").fetchone()[0]==0
+    created=c.post('/api/bitcoin/sessions',json={'amount':'103807249.23','locale':'en'})
+    assert created.status_code==200 and created.json()['report_delivery']=={'status':'scheduled','recipient':'r***@example.test','locale':'en'}
+    with TestClient(main.app) as other:
+        assert other.get('/api/bitcoin/contact').json()=={'registered':False}
+        assert other.post('/api/bitcoin/sessions',json={'amount':100000000}).status_code==400
+        assert other.post('/api/bitcoin/contact',json={'email':'other@example.test','consent':True}).status_code==200
+    assert c.get('/api/bitcoin/contact').json()==r.json()
+
+
+def test_settings_change_applies_to_unsent_and_future_reports_not_sent_history(btc_app,monkeypatch):
+    c,wall,db=btc_app
+    c.post('/api/bitcoin/contact',json={'email':'first@example.test','consent':True})
+    sid=c.post('/api/bitcoin/sessions',json={'amount':100000000,'locale':'ko'}).json()['id']
+    base='/api/bitcoin/sessions/'+sid
+    c.post(base+'/playback',json={'action':'pause'})
+    original=db.execute('SELECT state FROM sessions WHERE id=?',(sid,)).fetchone()[0]
+    wall[0]+=100
+    assert c.post('/api/bitcoin/contact',json={'email':'changed@example.test','consent':True}).json()['recipient']=='c***@example.test'
+    assert db.execute('SELECT state FROM sessions WHERE id=?',(sid,)).fetchone()[0]==original
+    recipients=[]
+    def send(email,report):
+        assert report['status']=='finished' and report['locale']=='ko'
+        recipients.append(email);return 'settings-report'
+    monkeypatch.setenv('RESEND_API_KEY','re_test_only');monkeypatch.setenv('RESEND_FROM_EMAIL','ERU AI <report@example.test>')
+    monkeypatch.setattr(main.bitcoin_service.mailer,'send',send)
+    finished=c.post(base+'/playback',json={'action':'finish'}).json()
+    assert recipients==['changed@example.test'] and finished['report_delivery']['status']=='accepted'
+    assert finished['report_delivery']['recipient']=='c***@example.test'
+    c.post('/api/bitcoin/contact',json={'email':'future@example.test','consent':True})
+    assert c.get(base).json()['report_delivery']==finished['report_delivery'] and len(recipients)==1
+    new=c.post('/api/bitcoin/sessions',json={'amount':100000000,'locale':'ko'}).json()
+    assert new['report_delivery']['recipient']=='f***@example.test'
+    assert all('email' not in r and 'recipient' not in r for r in c.get('/api/bitcoin/records').json()['records'])
+
+
+def test_retry_after_email_setting_change_uses_new_address(btc_app,monkeypatch):
+    c,_,_=btc_app
+    c.post('/api/bitcoin/contact',json={'email':'before@example.test','consent':True})
+    sid=c.post('/api/bitcoin/sessions',json={'amount':100000000,'locale':'en'}).json()['id']
+    base='/api/bitcoin/sessions/'+sid
+    assert c.post(base+'/playback',json={'action':'finish'}).json()['report_delivery']['status']=='failed'
+    c.post('/api/bitcoin/contact',json={'email':'after@example.test','consent':True})
+    recipients=[]
+    monkeypatch.setenv('RESEND_API_KEY','re_test_only');monkeypatch.setenv('RESEND_FROM_EMAIL','ERU AI <report@example.test>')
+    monkeypatch.setattr(main.bitcoin_service.mailer,'send',lambda email,report:recipients.append(email) or 'retry-new-email')
+    retried=c.post(base+'/delivery/retry',json={}).json()
+    assert recipients==['after@example.test']
+    assert retried['report_delivery']=={'status':'accepted','recipient':'a***@example.test','locale':'en'}

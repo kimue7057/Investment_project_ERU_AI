@@ -49,6 +49,11 @@ class Start(SendReport):
     amount: Decimal=Field(ge=10000,le=10000000000,max_digits=13,decimal_places=2)
 
 
+class SavedContactStart(Strict):
+    amount: Decimal=Field(ge=10000,le=10000000000,max_digits=13,decimal_places=2)
+    locale: Literal["en","ko"]="ko"
+
+
 class RetryDelivery(Strict):
     pass
 
@@ -129,18 +134,62 @@ class BitcoinService:
                 ("status","recipient","locale","error_code") if k in delivery}
         return result
 
+    def contact_id(self,owner):
+        return str(uuid.uuid5(uuid.NAMESPACE_URL,"eru/bitcoin/contact/"+owner))
+
+    def contact(self,owner):
+        result=self.read(self.contact_id(owner))
+        if not result:return None
+        state,revision=result
+        if state.get("mode")!="bitcoin_contact" or not hmac.compare_digest(state.get("visitor_hash",""),owner):
+            raise HTTPException(503,"이메일 설정을 불러오지 못했어요.")
+        return state,revision
+
+    def contact_public(self,request):
+        try:_,owner=self.token(request)
+        except HTTPException:return {"registered":False}
+        result=self.contact(owner)
+        return {"registered":True,"recipient":result[0]["recipient"]} if result else {"registered":False}
+
+    def save_contact(self,request,body):
+        token,owner=self.token(request,True)
+        with self.lock:
+            self.quota("contact",owner,3600,20)
+            for _ in range(5):
+                result=self.contact(owner)
+                revision=result[1] if result else None
+                local,domain=body.email.split("@")
+                state={"mode":"bitcoin_contact","visitor_hash":owner,"email":body.email,
+                    "recipient":local[:1]+"***@"+domain,"consented_at":self.clock()}
+                try:
+                    self.write(self.contact_id(owner),state,revision)
+                    return token,{"registered":True,"recipient":state["recipient"]}
+                except StorageConflict:continue
+        raise HTTPException(409,"이메일 설정을 저장 중이에요. 다시 시도해 주세요.")
+
     def create(self,request,body):
         if self.engine is None:
             raise HTTPException(503,"검증된 비트코인 데이터를 준비하고 있어요.")
         token,owner=self.token(request,True)
         with self.lock:
+            if isinstance(body,SavedContactStart):
+                registered=self.contact(owner)
+                if not registered:
+                    raise HTTPException(400,"먼저 결과를 받을 이메일을 설정해 주세요.")
+                email=registered[0]["email"]
+                consented_at=registered[0]["consented_at"]
+            else:
+                # 이전 배포 클라이언트의 명시적 수신 동의 요청도 유지한다.
+                email=body.email
+                consented_at=self.clock()
             self.quota("create",owner,3600,20)
             now=self.clock();sid=str(uuid.uuid4())
-            local,domain=body.email.split("@")
+            local,domain=email.split("@")
             state={"id":sid,"mode":MODE,"model_version":MODEL_VERSION,"market_sha":self.engine.fingerprint,"visitor_hash":owner,"amount":str(body.amount),"created_at":now,
                 "anchor":now,"elapsed":0.0,"speed":4,"status":"running","email_receipts":{},
-                "report_delivery":{"email":body.email,"recipient":local[:1]+"***@"+domain,
-                    "locale":body.locale,"consented_at":now,"status":"scheduled"}}
+                "report_delivery":{"email":email,"recipient":local[:1]+"***@"+domain,
+                    "locale":body.locale,"consented_at":consented_at,"status":"scheduled",
+                    "use_saved_contact":isinstance(body,SavedContactStart)}}
             self.write(sid,state,None)
         return token,self.public(state)
 
@@ -199,6 +248,12 @@ class BitcoinService:
         def claim(s):
             d=s.get("report_delivery",{})
             if d.get("status")=="scheduled" or (d.get("status")=="sending" and self.clock()-d.get("started_at",0)>=60):
+                # 첫 발송/명시적 재시도는 설정에서 마지막으로 저장한 주소를 쓴다.
+                # 진행 중인 발송의 복구는 기존 주소·멱등 키를 그대로 유지한다.
+                if d.get("status")=="scheduled" and d.get("use_saved_contact",True):
+                    contact=self.contact(s["visitor_hash"])
+                    if contact:
+                        d.update({k:contact[0][k] for k in ("email","recipient","consented_at")})
                 d.update(status="sending",lease=lease,started_at=self.clock())
         state=self.change(request,sid,claim,raw=True,auto_delivery=False)
         d=state.get("report_delivery",{})
@@ -319,13 +374,25 @@ def make_router(provider,lock):
             "initial":"두 계좌 모두 BTC 100%로 동일 출발","fee_rate":.0005,
             "currency_note":"USD 가격 변동률을 원화 자본에 적용하며 환율 변동과 현금 이자는 미반영합니다."}
 
-    @router.post("/sessions")
-    def start(body:Start,request:Request):
-        token,result=service.create(request,body)
+    def with_cookie(token,result,request):
         response=JSONResponse(result)
         response.set_cookie(COOKIE,token,max_age=86400*30,httponly=True,
             secure=os.environ.get("VERCEL")=="1" or request.url.scheme=="https",samesite="lax",path="/")
         return response
+
+    @router.get("/contact")
+    def contact(request:Request):
+        return service.contact_public(request)
+
+    @router.post("/contact")
+    def save_contact(body:SendReport,request:Request):
+        token,result=service.save_contact(request,body)
+        return with_cookie(token,result,request)
+
+    @router.post("/sessions")
+    def start(body:Start|SavedContactStart,request:Request):
+        token,result=service.create(request,body)
+        return with_cookie(token,result,request)
 
     @router.get("/sessions/{sid}")
     def snapshot(sid:str,request:Request,view:int|None=None):

@@ -12,13 +12,13 @@ const cycles=[
   {name:'2차 사이클',period:'2020.05 - 2023.06'},
   {name:'3차 사이클',period:'2023.07 - 2026.05'},
 ];
-const state={config:null,run:null,amountDraft:defaultCapital(lang()),amountEdited:false,reportEmailDraft:'',reportConsent:false,cycle:0,event:0,busy:false,records:[],error:'',booting:true};
+const state={config:null,contact:null,emailEditing:false,run:null,amountDraft:defaultCapital(lang()),amountEdited:false,reportEmailDraft:'',reportConsent:false,cycle:0,event:0,busy:false,records:[],error:'',booting:true};
 let pollTimer,pollPromise=null,pollFailures=0,lastRoute='',previousFocus=null,toastTimer,chartSerial=0;
 const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const signed=n=>(n>0?'+':'')+money(n);
 const percent=n=>(n>0?'+':'')+Number(n).toFixed(1)+'%';
 const cycleData=()=>state.run?.cycles[state.cycle];
-function route(){const p=location.hash.slice(1)||'home';return ['home','amount','simulation','results','review','records','settings'].includes(p)?p:'home';}
+function route(){if(!state.booting&&!state.contact?.registered)return 'email';const p=location.hash.slice(1)||'home';return ['home','email','amount','simulation','results','review','records','settings'].includes(p)?p:'home';}
 function tabs(action='cycle'){return `<div class="cycle-tabs" role="group" aria-label="${t('Market cycles','사이클 선택')}">${cycles.map((c,i)=>`<button data-action="${action}" data-cycle="${i}" class="${state.cycle===i?'active':''}" aria-pressed="${state.cycle===i}" ${state.run&&i>state.run.current_cycle?'disabled':''}>${cycleName(i)}</button>`).join('')}</div>`;}
 function legend(){return `<div class="legend"><span><i></i>${t('Buy & hold','단순 보유')}</span><span><i class="green"></i>${t('Risk Guard','리스크 가드')}</span><small>${currencyCode(lang())}</small></div>`;}
 async function api(path,body,keepalive=false){
@@ -46,14 +46,14 @@ function chart(c,{mini=false,markers=false}={}){
   const dots=markers?(data.events||[]).map((ev,i)=>{const p=layout[i],cx=left+p.x/100*w,cy=top+p.y/100*h,ax=left+p.anchorX/100*w,ay=top+p.anchorY/100*h;return `<g class="chart-marker" role="button" tabindex="0" data-action="event" data-index="${i}" aria-label="${i+1} · ${ev.at} · ${typeLabel(ev.kind)}"><line x1="${ax}" y1="${ay}" x2="${cx}" y2="${cy}" stroke="#aab6cb" stroke-width="1"/><circle class="chart-mark ${state.event===i?'chosen':''}" cx="${cx}" cy="${cy}" r="${state.event===i?14:12}"/><text class="chart-mark-text ${state.event===i?'chosen':''}" x="${cx}" y="${cy+3.5}" text-anchor="middle">${i+1}</text></g>`;}).join(''):'';
   return `<svg class="asset-chart" viewBox="0 0 ${width} ${height}" role="${markers?'group':'img'}" aria-label="${cycleName(c)} · ${t('Calculated asset comparison','실제 계산된 총자산 비교')}"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#278d76" stop-opacity=".12"/><stop offset="1" stop-color="#278d76" stop-opacity="0"/></linearGradient></defs>${grid}<path d="${path('guard')} L${x(history.at(-1))},${top+h} L${left},${top+h}Z" fill="url(#${id})"/><path class="line-hold" d="${path('hold')}"/><path class="line-guard" d="${path('guard')}"/>${dots}${labels}</svg>`;
 }
-const {home,amount,simulation,liveContent,results,review,recordsPage,settings}=createViews({state,cycles,LOGO,chart,tabs,legend,percent,signed,escape});
+const {home,emailSetup,amount,simulation,liveContent,results,review,recordsPage,settings}=createViews({state,cycles,LOGO,chart,tabs,legend,percent,signed,escape});
 function chrome(){
   document.documentElement.lang=lang();
   const page=route(),labels={home:t('Home','홈'),results:t('Results','결과'),records:t('Records','기록'),settings:t('Settings','설정')};
   const paths={home:'M3 10 12 3l9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z',results:'M4 20V10h4v10M10 20V4h4v16M16 20v-8h4v8',records:'M7 3h10a2 2 0 0 1 2 2v16H5V5a2 2 0 0 1 2-2ZM8 8h8M8 12h8M8 16h5',settings:'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2'};
   document.getElementById('app-navigation').setAttribute('aria-label',t('App navigation','앱 메뉴'));
   document.getElementById('app-navigation').innerHTML=Object.entries(labels).map(([key,label])=>`<a href="#${key}" data-nav="${key}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${paths[key]}"/></svg><span>${label}</span></a>`).join('');
-  const back=document.getElementById('header-back');back.hidden=page==='home';back.setAttribute('aria-label',t('Back','뒤로'));
+  const back=document.getElementById('header-back');back.hidden=page==='home'||page==='email';back.setAttribute('aria-label',t('Back','뒤로'));
   document.getElementById('header-language').textContent=lang()==='ko'?'한국어':'EN';
   document.getElementById('header-language').setAttribute('aria-label',t('Language settings','언어 설정'));
   document.querySelector('.site-footer').textContent=t('Historical simulation · No real trades · © ERUTY','과거 데이터 기반 모의 시뮬레이션 · 실제 거래 없음 · © ERUTY');
@@ -62,10 +62,10 @@ function chrome(){
 function render(){
   clearTimeout(pollTimer);const page=route();chrome();document.body.dataset.view=page;document.querySelectorAll('[data-nav]').forEach(el=>{const yes=el.dataset.nav===page||(el.dataset.nav==='home'&&['amount','simulation'].includes(page))||(el.dataset.nav==='results'&&page==='review');el.classList.toggle('active',yes);if(yes)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');});
   if(state.booting){app.innerHTML=`<div class="page"><section class="empty-state"><div class="loading-ring"></div><h2>${t('Preparing your market','시장을 준비하고 있어요')}</h2><p>${t('Checking verified data and saved records.','검증된 데이터와 이전 기록을 확인해요.')}</p></section></div>`;return;}
-  app.innerHTML=errorBox()+({home,amount,simulation,results,review,records:recordsPage,settings}[page])();app.className='screen-enter';
+  app.innerHTML=errorBox()+({home,email:emailSetup,amount,simulation,results,review,records:recordsPage,settings}[page])();app.className='screen-enter';
   const timeline=app.querySelector('.review-timeline'),selected=timeline?.querySelector('.active');if(selected)timeline.scrollLeft=selected.offsetLeft-timeline.offsetLeft-timeline.clientWidth/2+selected.clientWidth/2;
   if(page!==lastRoute){if(!matchMedia('(prefers-reduced-motion:reduce)').matches)app.animate([{opacity:.3,transform:'translateY(8px)'},{opacity:1,transform:'translateY(0)'}],{duration:180,easing:'ease-out'});app.scrollTo({top:0,behavior:'instant'});app.focus({preventScroll:true});lastRoute=page;}
-  document.title=({home:t('Bitcoin Risk Guard','비트코인 리스크 가드'),amount:t('Your capital','내 투자금'),simulation:t('Live comparison','자동 비교'),results:t('Your results','비교 결과'),review:t('Response review','대응 복기'),records:t('Your records','내 기록'),settings:t('Settings','설정')}[page])+' · ERU AI';
+  document.title=({home:t('Bitcoin Risk Guard','비트코인 리스크 가드'),email:t('Report email','보고서 이메일 설정'),amount:t('Your capital','내 투자금'),simulation:t('Live comparison','자동 비교'),results:t('Your results','비교 결과'),review:t('Response review','대응 복기'),records:t('Your records','내 기록'),settings:t('Settings','설정')}[page])+' · ERU AI';
   schedulePoll();
 }
 function schedulePoll(){clearTimeout(pollTimer);if(((route()==='simulation'&&state.run?.status==='running')||(route()==='results'&&['scheduled','sending'].includes(state.run?.report_delivery?.status)))&&!document.hidden&&pollFailures<3)pollTimer=setTimeout(poll,1400);}
@@ -96,7 +96,8 @@ function method(){return modal(t('How the comparison works','비교 결과를 �
 ['This is a historical simulation, with no deposit or exchange orders. Past performance does not guarantee future results.','과거 모의 결과로 실제 입금·주문은 없어요. 과거 결과가 미래 성과를 보장하지 않아요.']
 ].map(([en,ko])=>`<li>${t(en,ko)}</li>`).join('')}</ul><button class="btn dark wide" data-action="close-modal">${t('Got it','확인했어요')}</button>`);}
 function flow(){return modal(t('Your comparison journey','투자금부터 대응 복기까지'),`<ol class="flow-list">${[
-['Email & capital','이메일과 투자금 입력','Register your email for an automatic report. No verification code.','이메일을 등록하면 완료 후 보고서를 자동으로 보내요. 인증번호는 필요 없어요.'],
+['Report email','보고서 이메일 설정','First, save your email on its own screen. No verification code.','먼저 별도 화면에서 이메일을 저장해요. 인증번호는 필요 없어요.'],
+['Your capital','투자금 설정','Next, choose your simulation capital.','다음 화면에서 시뮬레이션 투자금을 정해요.'],
 ['Automatic comparison','세 사이클 자동 비교','Follow both accounts across real historical daily candles.','과거 실제 일봉으로 두 계좌를 함께 계산해요.'],
 ['Results','결과 확인','Compare drawdowns and final assets together.','낙폭과 종료 자산을 함께 비교해요.'],
 ['Review responses','대응 복기','Explore signals, simulated trades and asset changes.','신호·모의 체결·자산 변화를 확인해요.']
@@ -119,13 +120,17 @@ function closeSplash(){
   if(splashFocus?.isConnected&&!root.contains(splashFocus))splashFocus.focus({preventScroll:true});else app.focus({preventScroll:true});
   splashExitTimer=setTimeout(()=>{root.hidden=true;root.classList.remove('video-ready');root.innerHTML='';},300);
 }
-document.addEventListener('input',e=>{if(e.target.id==='start-email')state.reportEmailDraft=e.target.value;if(e.target.id==='start-consent')state.reportConsent=e.target.checked;if(e.target.id==='amount-input'){state.amountEdited=true;const n=parseAmount(e.target.value,lang());if(n!==null)state.amountDraft=n;document.getElementById('amount-error').textContent='';}});
+document.addEventListener('input',e=>{if(e.target.id==='contact-email')state.reportEmailDraft=e.target.value;if(e.target.id==='contact-consent')state.reportConsent=e.target.checked;if(e.target.id==='amount-input'){state.amountEdited=true;const n=parseAmount(e.target.value,lang());if(n!==null)state.amountDraft=n;document.getElementById('amount-error').textContent='';}});
 document.addEventListener('submit',async e=>{
+  if(e.target.id==='contact-form'){
+    e.preventDefault();if(!e.target.reportValidity())return;const edit=e.target.dataset.edit==='true';
+    const email=document.getElementById('contact-email').value.trim(),consent=document.getElementById('contact-consent').checked,website=document.getElementById('contact-website').value;
+    await perform(async()=>{state.contact=await api('/contact',{email,consent,website,locale:lang()});state.reportEmailDraft='';state.reportConsent=false;state.emailEditing=false;if(edit){toast(t('Email updated. Reports not yet sent will use this address.','이메일을 변경했어요. 아직 보내지 않은 보고서부터 적용돼요.'));render();}else await navigate('amount');});return;
+  }
   if(e.target.id!=='amount-form')return;e.preventDefault();if(!e.target.reportValidity())return;
   const n=parseAmount(document.getElementById('amount-input').value,lang(),state.amountDraft);
   if(n===null||n<10000||n>10000000000){const [min,max]=amountLimits('en');document.getElementById('amount-error').textContent=t(`Enter S$${min.toFixed(2)} to S$${max.toLocaleString('en-SG',{minimumFractionDigits:2})}, with up to 2 decimal places.`,'1만 원부터 100억 원까지 숫자로 입력해 주세요.');return;}
-  const email=document.getElementById('start-email').value.trim(),consent=document.getElementById('start-consent').checked,website=document.getElementById('start-website').value;
-  state.amountDraft=n;await perform(async()=>{if(state.run?.status==='running')await api('/sessions/'+state.run.id+'/playback',{action:'pause'});const run=await api('/sessions',{amount:n.toFixed(2),email,consent,website,locale:lang()});state.reportEmailDraft='';state.reportConsent=false;state.cycle=0;state.event=0;receive(run,{follow:true});await navigate('simulation');});
+  state.amountDraft=n;await perform(async()=>{if(state.run?.status==='running')await api('/sessions/'+state.run.id+'/playback',{action:'pause'});const run=await api('/sessions',{amount:n.toFixed(2),locale:lang()});state.reportEmailDraft='';state.reportConsent=false;state.cycle=0;state.event=0;receive(run,{follow:true});await navigate('simulation');});
 });
 document.addEventListener('click',async e=>{
   const link=e.target.closest('a[href^="#"]');if(link){e.preventDefault();await perform(()=>navigate(link.hash.slice(1)||'home'));return;}
@@ -135,7 +140,7 @@ document.addEventListener('click',async e=>{
   if(a==='language'){setLanguage(el.dataset.language);if(!state.amountEdited)state.amountDraft=defaultCapital(lang());render();return;}
   if(a==='preset'){state.amountEdited=true;state.amountDraft=Number(el.dataset.amount);document.getElementById('amount-input').value=inputAmount(state.amountDraft,lang());document.getElementById('amount-error').textContent='';app.querySelectorAll('[data-action="preset"]').forEach(x=>x.classList.toggle('selected',x===el));return;}
   await perform(async()=>{
-    if(a==='settings')await navigate('settings');else if(a==='back')await navigate(({amount:'home',simulation:'amount',review:'results',results:'home',records:'home',settings:'home'})[route()]||'home');else if(a==='begin')await navigate('amount');else if(a==='method')await method();else if(a==='flow')await flow();else if(a==='start-from-flow'){closeModal();await navigate('amount');}
+    if(a==='edit-contact'){state.emailEditing=true;state.reportEmailDraft='';state.reportConsent=false;await navigate('settings');}else if(a==='cancel-contact'){state.emailEditing=false;state.reportEmailDraft='';state.reportConsent=false;render();}else if(a==='settings')await navigate('settings');else if(a==='back')await navigate(({amount:'home',simulation:'amount',review:'results',results:'home',records:'home',settings:'home'})[route()]||'home');else if(a==='begin')await navigate('amount');else if(a==='method')await method();else if(a==='flow')await flow();else if(a==='start-from-flow'){closeModal();await navigate('amount');}
     else if(a==='play')await playback(state.run.status==='running'?'pause':'resume');else if(a==='speed')await playback('speed',Number(el.dataset.speed));else if(a==='next-event')await playback('next');else if(a==='finish'){toast(t('Finishing your comparison and preparing the email report…','비교를 마치고 이메일 보고서를 준비하고 있어요…'));await playback('finish');}else if(a==='retry-delivery')receive(await api('/sessions/'+state.run.id+'/delivery/retry',{}));else if(a==='resume'){await playback('resume');await navigate('simulation');}
     else if(a==='sim-cycle'){state.cycle=Number(el.dataset.cycle);const g=await api('/sessions/'+state.run.id+'?view='+state.cycle);receive(g);render();}
     else if(a==='result-cycle'){state.cycle=Number(el.dataset.cycle);remember();render();document.getElementById('result-detail').scrollIntoView({behavior:'smooth',block:'start'});}
@@ -146,7 +151,7 @@ document.addEventListener('click',async e=>{
     else if(a==='all-events')await allEvents();else if(a==='next-cycle-review'){state.cycle=(state.cycle+1)%3;state.event=0;remember();render();app.scrollTo({top:0,behavior:'smooth'});}
     else if(a==='results')await navigate('results');else if(a==='records')await navigate('records');
     else if(a==='open-record'||a==='review-record'){const g=await api('/sessions/'+el.dataset.id);receive(g);state.cycle=0;state.event=0;await navigate(a==='review-record'?'review':g.status==='finished'?'results':'simulation');}
-    else if(a==='retry'){pollFailures=0;state.config=await api('/config');if(!state.config.ready)throw new Error('검증된 데이터를 준비하고 있어요. 잠시 후 다시 시도해 주세요.');if(state.run)receive(await api('/sessions/'+state.run.id+'?view='+state.cycle));state.error='';render();}
+    else if(a==='retry'){pollFailures=0;state.config=await api('/config');state.contact=await api('/contact');if(!state.config.ready)throw new Error('검증된 데이터를 준비하고 있어요. 잠시 후 다시 시도해 주세요.');state.contact=await api('/contact');if(state.run)receive(await api('/sessions/'+state.run.id+'?view='+state.cycle));state.error='';render();}
   });
 });
 document.addEventListener('keydown',e=>{const m=document.querySelector('.modal');if(m){if(e.key==='Escape'){e.preventDefault();closeModal();}else if(e.key==='Tab'){const items=[...m.querySelectorAll('button:not(:disabled),a[href],input')];if(e.shiftKey&&document.activeElement===items[0]){e.preventDefault();items.at(-1).focus();}else if(!e.shiftKey&&document.activeElement===items.at(-1)){e.preventDefault();items[0].focus();}}return;}if((e.key==='Enter'||e.key===' ')&&e.target.matches('.chart-marker')){e.preventDefault();e.target.dispatchEvent(new MouseEvent('click',{bubbles:true}));}});
@@ -154,5 +159,5 @@ window.addEventListener('hashchange',async()=>{try{if(route()!=='simulation'&&st
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&state.run?.status==='running')api('/sessions/'+state.run.id+'/playback',{action:'pause'},true).then(receive).catch(()=>{});else if(!document.hidden&&route()==='simulation'&&state.run)perform(async()=>{receive(await api('/sessions/'+state.run.id+'?view='+state.cycle));render();});});
 window.addEventListener('pagehide',()=>{if(state.run?.status==='running')api('/sessions/'+state.run.id+'/playback',{action:'pause'},true).catch(()=>{});});
 matchMedia('(max-width:600px)').addEventListener('change',()=>{if(!state.booting)render();});
-async function boot(){render();splash();try{state.config=await api('/config');if(!state.config.ready)state.error='검증된 비트코인 데이터를 준비하고 있어요. 잠시 후 다시 확인해 주세요.';let sid;try{sid=localStorage.getItem(LAST);}catch{}if(sid){try{let saved;try{saved=JSON.parse(sessionStorage.getItem('eru-btc-view-'+sid)||'null');}catch{}const g=await api('/sessions/'+sid);receive(g,{follow:true});if(saved&&Number.isInteger(saved.cycle)&&saved.cycle>=0&&saved.cycle<=g.current_cycle){state.cycle=saved.cycle;state.event=Number.isInteger(saved.event)?Math.min(Math.max(0,saved.event),Math.max(0,g.cycles[state.cycle].events.length-1)):0;if(g.status!=='finished')receive(await api('/sessions/'+sid+'?view='+state.cycle));}}catch(e){if(e.status!==404)state.error=e.message;}}if(route()==='records')state.records=(await api('/records')).records;}catch(e){state.error=e.message;}state.booting=false;render();}
+async function boot(){render();splash();try{state.config=await api('/config');state.contact=await api('/contact');if(!state.config.ready)state.error='검증된 비트코인 데이터를 준비하고 있어요. 잠시 후 다시 확인해 주세요.';let sid;try{sid=localStorage.getItem(LAST);}catch{}if(sid){try{let saved;try{saved=JSON.parse(sessionStorage.getItem('eru-btc-view-'+sid)||'null');}catch{}const g=await api('/sessions/'+sid);receive(g,{follow:true});if(saved&&Number.isInteger(saved.cycle)&&saved.cycle>=0&&saved.cycle<=g.current_cycle){state.cycle=saved.cycle;state.event=Number.isInteger(saved.event)?Math.min(Math.max(0,saved.event),Math.max(0,g.cycles[state.cycle].events.length-1)):0;if(g.status!=='finished')receive(await api('/sessions/'+sid+'?view='+state.cycle));}}catch(e){if(e.status!==404)state.error=e.message;}}if(route()==='records')state.records=(await api('/records')).records;}catch(e){state.error=e.message;}state.booting=false;if(state.contact?.registered&&location.hash==='#email')history.replaceState(null,'','#amount');render();}
 boot();
