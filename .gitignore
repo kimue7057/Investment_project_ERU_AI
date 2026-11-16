@@ -17,6 +17,7 @@ data/metadata/*PRIVATE*
 docs/figma/reference/
 test-results/
 playwright-report/
+output/pdf/
 *.tsbuildinfo
 frontend/_tmp_*
 .vercel/

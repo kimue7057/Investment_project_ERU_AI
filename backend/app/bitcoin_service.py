@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .bitcoin_engine import BitcoinEngine, CYCLES, MODEL_VERSION
 from .blob_store import StorageConflict
-from .result_mail import ResultMailer
+from .result_mail import ResultMailer, REPORT_VERSION
 
 COOKIE="eru_btc_visitor"
 MODE="bitcoin_v1"
@@ -210,20 +210,21 @@ class BitcoinService:
         if not self.mailer.configured:
             raise HTTPException(503,"결과 메일 발송을 준비하고 있어요. 화면의 결과와 복기는 계속 확인할 수 있어요.")
         digest=hashlib.sha256(body.email.encode()).hexdigest()
+        receipt_key=REPORT_VERSION+":"+digest
         lease=secrets.token_hex(16)
         def claim(s):
             if s["status"]!="finished":
                 raise HTTPException(400,"비교를 마친 후 결과 메일을 받을 수 있어요.")
-            if digest in s.get("email_receipts",{}):
+            if receipt_key in s.get("email_receipts",{}):
                 return
-            if len(s.get("email_receipts",{}))>=2:
+            if sum(key.startswith(REPORT_VERSION+":") for key in s.get("email_receipts",{}))>=2:
                 raise HTTPException(429,"이 비교 결과의 발송 횟수를 모두 사용했어요.")
             pending=s.get("email_pending")
             if pending and self.clock()-pending["at"]<60:
                 raise HTTPException(409,"이 결과의 메일을 발송하고 있어요. 잠시 후 확인해 주세요.")
             s["email_pending"]={"digest":digest,"at":self.clock(),"lease":lease}
         state=self.change(request,sid,claim,raw=True)
-        if digest in state.get("email_receipts",{}):
+        if receipt_key in state.get("email_receipts",{}):
             return {"status":"accepted","already_sent":True}
         try:
             with self.lock:
@@ -239,7 +240,7 @@ class BitcoinService:
             self.change(request,sid,release)
             raise
         def finish(s):
-            s.setdefault("email_receipts",{})[digest]={"at":self.clock(),"id":message_id}
+            s.setdefault("email_receipts",{})[receipt_key]={"at":self.clock(),"id":message_id}
             if s.get("email_pending",{}).get("lease")==lease:s.pop("email_pending",None)
         self.change(request,sid,finish)
         return {"status":"accepted","already_sent":False}

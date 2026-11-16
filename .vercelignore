@@ -9,6 +9,7 @@ archive
 test-results
 tests
 reports
+output
 docs
 *.zip
 data/raw

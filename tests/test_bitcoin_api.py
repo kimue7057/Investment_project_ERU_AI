@@ -126,7 +126,9 @@ def test_report_is_server_generated_idempotent_and_not_an_open_relay(btc_app,mon
         payload=json.loads(req.content)
         assert req.url.host=='api.resend.com'
         assert payload['to']==['reader@example.test']
-        assert len(payload['attachments'])==1 and payload['attachments'][0]['filename'].endswith('.pdf')
+        assert len(payload['attachments'])==5
+        assert {a['filename'] for a in payload['attachments'] if 'content_id' not in a}=={'ERUTY_Company_Introduction.pdf','ERU_RiskGuard_Results_Review.pdf'}
+        assert len({a['content_id'] for a in payload['attachments'] if 'content_id' in a})==3
         assert '최대 낙폭' in payload['html'] and '회사 소개' in payload['html']
         assert req.headers['Idempotency-Key'].startswith('bitcoin-result/'+sid+'/')
         sent.append(payload)
@@ -156,3 +158,25 @@ def test_email_provider_failure_does_not_claim_success_or_leak_body(btc_app,monk
     assert r.status_code==503 and 'do-not-return' not in r.text
     s=json.loads(db.execute('SELECT state FROM sessions WHERE id=?',(sid,)).fetchone()[0])
     assert not s.get('email_receipts') and not s.get('email_pending')
+
+
+def test_old_email_receipt_allows_one_upgraded_report_then_deduplicates(btc_app,monkeypatch):
+    import hashlib
+    from backend.app.result_mail import REPORT_VERSION
+    c,_,db=btc_app;sid=start(c);base='/api/bitcoin/sessions/'+sid
+    c.post(base+'/playback',json={"action":"finish"})
+    state=json.loads(db.execute('SELECT state FROM sessions WHERE id=?',(sid,)).fetchone()[0])
+    digest=hashlib.sha256(b'reader@example.test').hexdigest()
+    state['email_receipts']={digest:{'at':1794794400,'id':'legacy-basic-report'}}
+    db.execute('UPDATE sessions SET state=? WHERE id=?',(json.dumps(state),sid));db.commit()
+    monkeypatch.setenv('RESEND_API_KEY','re_test_only');monkeypatch.setenv('RESEND_FROM_EMAIL','ERU AI <report@example.test>')
+    sent=[]
+    def handler(req):
+        sent.append(req)
+        assert '/'+REPORT_VERSION+'/' in req.headers['Idempotency-Key']
+        return httpx.Response(200,json={'id':'upgraded-report'})
+    monkeypatch.setattr(main.bitcoin_service.mailer,'client',httpx.Client(transport=httpx.MockTransport(handler)))
+    body={'email':'reader@example.test','consent':True,'locale':'ko'}
+    assert c.post(base+'/email',json=body).json()['already_sent'] is False
+    assert c.post(base+'/email',json=body).json()['already_sent'] is True
+    assert len(sent)==1
