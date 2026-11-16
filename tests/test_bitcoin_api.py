@@ -16,6 +16,8 @@ def btc_app(tmp_path,monkeypatch):
     db.execute("CREATE TABLE sessions(id TEXT PRIMARY KEY,state TEXT NOT NULL)")
     monkeypatch.setattr(main,"db",db)
     monkeypatch.setattr(main,"cloud_store",None)
+    monkeypatch.delenv("RESEND_API_KEY",raising=False)
+    monkeypatch.delenv("RESEND_FROM_EMAIL",raising=False)
     wall=[1800000000.0]
     monkeypatch.setattr(main.bitcoin_service,"clock",lambda:wall[0])
     with TestClient(main.app) as client:
@@ -24,9 +26,19 @@ def btc_app(tmp_path,monkeypatch):
 
 
 def start(c,amount=100000000):
-    r=c.post('/api/bitcoin/sessions',json={"amount":amount})
+    r=c.post('/api/bitcoin/sessions',json={"amount":amount,"email":"reader@example.test","consent":True,"locale":"ko"})
     assert r.status_code==200,r.text
     return r.json()['id']
+
+
+def legacy_start(c):
+    """기존 수신 주소 미등록 기록의 수동 발송 호환성을 검증한다."""
+    sid=start(c)
+    _,db=main.bitcoin_service.provider()
+    state=json.loads(db.execute('SELECT state FROM sessions WHERE id=?',(sid,)).fetchone()[0])
+    state.pop('report_delivery')
+    db.execute('UPDATE sessions SET state=? WHERE id=?',(json.dumps(state),sid));db.commit()
+    return sid
 
 
 def test_anonymous_start_cookie_and_private_owner_boundary(btc_app):
@@ -97,7 +109,7 @@ def test_email_unconfigured_is_truthful_and_requires_consent(btc_app,monkeypatch
 
 def test_sgd_capital_and_report_locale_preserve_canonical_ledger(btc_app,monkeypatch):
     c,_,_=btc_app
-    r=c.post('/api/bitcoin/sessions',json={"amount":"103807249.23"})
+    r=c.post('/api/bitcoin/sessions',json={"amount":"103807249.23","email":"sgd@example.test","consent":True,"locale":"en"})
     assert r.status_code==200
     sid=r.json()['id'];base='/api/bitcoin/sessions/'+sid
     result=c.post(base+'/playback',json={"action":"finish"}).json()
@@ -118,7 +130,7 @@ def test_sgd_capital_and_report_locale_preserve_canonical_ledger(btc_app,monkeyp
 
 
 def test_report_is_server_generated_idempotent_and_not_an_open_relay(btc_app,monkeypatch):
-    c,_,db=btc_app;sid=start(c);base='/api/bitcoin/sessions/'+sid
+    c,_,db=btc_app;sid=legacy_start(c);base='/api/bitcoin/sessions/'+sid
     monkeypatch.setenv('RESEND_API_KEY','re_test_only')
     monkeypatch.setenv('RESEND_FROM_EMAIL','ERU AI <report@example.test>')
     sent=[]
@@ -149,7 +161,7 @@ def test_report_is_server_generated_idempotent_and_not_an_open_relay(btc_app,mon
 
 
 def test_email_provider_failure_does_not_claim_success_or_leak_body(btc_app,monkeypatch):
-    c,_,db=btc_app;sid=start(c);base='/api/bitcoin/sessions/'+sid
+    c,_,db=btc_app;sid=legacy_start(c);base='/api/bitcoin/sessions/'+sid
     c.post(base+'/playback',json={"action":"finish"})
     monkeypatch.setenv('RESEND_API_KEY','re_test_only')
     monkeypatch.setenv('RESEND_FROM_EMAIL','ERU AI <report@example.test>')
@@ -163,7 +175,7 @@ def test_email_provider_failure_does_not_claim_success_or_leak_body(btc_app,monk
 def test_old_email_receipt_allows_one_upgraded_report_then_deduplicates(btc_app,monkeypatch):
     import hashlib
     from backend.app.result_mail import REPORT_VERSION
-    c,_,db=btc_app;sid=start(c);base='/api/bitcoin/sessions/'+sid
+    c,_,db=btc_app;sid=legacy_start(c);base='/api/bitcoin/sessions/'+sid
     c.post(base+'/playback',json={"action":"finish"})
     state=json.loads(db.execute('SELECT state FROM sessions WHERE id=?',(sid,)).fetchone()[0])
     digest=hashlib.sha256(b'reader@example.test').hexdigest()
@@ -180,3 +192,85 @@ def test_old_email_receipt_allows_one_upgraded_report_then_deduplicates(btc_app,
     assert c.post(base+'/email',json=body).json()['already_sent'] is False
     assert c.post(base+'/email',json=body).json()['already_sent'] is True
     assert len(sent)==1
+
+
+def test_start_requires_email_consent_and_never_exposes_private_registration(btc_app):
+    c,_,db=btc_app
+    body={"amount":100000000,"email":" Reader@Example.test ","consent":True,"locale":"en"}
+    for bad in [{"amount":100000000},{**body,"email":"bad"},{**body,"consent":False},{**body,"website":"bot"},{**body,"locale":"zh"}]:
+        assert c.post('/api/bitcoin/sessions',json=bad).status_code==422
+    r=c.post('/api/bitcoin/sessions',json=body);assert r.status_code==200
+    g=r.json();d=g['report_delivery']
+    assert d=={"status":"scheduled","recipient":"r***@example.test","locale":"en"}
+    assert 'reader@example.test' not in r.text
+    saved=json.loads(db.execute('SELECT state FROM sessions WHERE id=?',(g['id'],)).fetchone()[0])
+    assert saved['report_delivery']['email']=='reader@example.test'
+    assert saved['report_delivery']['consented_at']
+    assert 'consented_at' not in r.text and 'all_events' not in r.text
+    assert all('report_delivery' not in x for x in c.get('/api/bitcoin/records').json()['records'])
+
+
+@pytest.mark.parametrize('completion',['finish','clock','next'])
+def test_registered_report_sends_automatically_once_after_completion(btc_app,monkeypatch,completion):
+    c,wall,db=btc_app
+    sent=[]
+    monkeypatch.setenv('RESEND_API_KEY','re_test_only');monkeypatch.setenv('RESEND_FROM_EMAIL','ERU AI <report@example.test>')
+    def handler(req):
+        payload=json.loads(req.content);sent.append(payload)
+        assert payload['to']==['reader@example.test']
+        assert len(payload['attachments'])==5 and '최대 낙폭' in payload['html']
+        return httpx.Response(200,json={'id':'automatic-report'})
+    monkeypatch.setattr(main.bitcoin_service.mailer,'client',httpx.Client(transport=httpx.MockTransport(handler)))
+    sid=start(c);base='/api/bitcoin/sessions/'+sid
+    assert c.get(base).json()['report_delivery']['status']=='scheduled' and not sent
+    if completion=='clock':
+        for _ in range(8):wall[0]+=10;result=c.get(base)
+    elif completion=='next':
+        for _ in range(65):
+            result=c.post(base+'/playback',json={'action':'next'})
+            if result.json()['status']=='finished':break
+    else:result=c.post(base+'/playback',json={'action':'finish'})
+    assert result.status_code==200 and result.json()['status']=='finished'
+    assert result.json()['report_delivery']['status']=='accepted' and len(sent)==1
+    assert c.get(base).json()['report_delivery']['status']=='accepted'
+    assert c.post(base+'/playback',json={'action':'finish'}).status_code==200
+    assert c.post(base+'/delivery/retry',json={}).json()['report_delivery']['status']=='accepted'
+    assert len(sent)==1
+    stored=db.execute('SELECT state FROM sessions WHERE id=?',(sid,)).fetchone()[0]
+    assert 'reader@example.test' not in stored and 'automatic-report' not in result.text
+
+
+def test_failed_auto_delivery_preserves_results_and_retries_registered_address_only(btc_app,monkeypatch):
+    c,_,_=btc_app;sid=start(c);base='/api/bitcoin/sessions/'+sid
+    monkeypatch.setenv('RESEND_API_KEY','re_test_only');monkeypatch.setenv('RESEND_FROM_EMAIL','ERU AI <report@example.test>')
+    attempts=[]
+    def handler(req):
+        payload=json.loads(req.content);attempts.append(payload)
+        if len(attempts)==1:return httpx.Response(500,json={'secret':'provider-private'})
+        assert payload['to']==['reader@example.test']
+        return httpx.Response(200,json={'id':'retry-report'})
+    monkeypatch.setattr(main.bitcoin_service.mailer,'client',httpx.Client(transport=httpx.MockTransport(handler)))
+    r=c.post(base+'/playback',json={'action':'finish'})
+    assert r.status_code==200 and r.json()['status']=='finished'
+    assert r.json()['report_delivery']['status']=='failed' and 'provider-private' not in r.text
+    assert c.get(base).json()['report_delivery']['status']=='failed' and len(attempts)==1
+    with TestClient(main.app) as other:
+        assert other.post(base+'/delivery/retry',json={}).status_code==404
+    assert c.post(base+'/delivery/retry',json={'email':'forged@example.test'}).status_code==422
+    retry=c.post(base+'/delivery/retry',json={})
+    assert retry.json()['report_delivery']['status']=='accepted' and len(attempts)==2
+    assert retry.json()['cycles']==r.json()['cycles']
+
+
+def test_delivery_active_lease_and_stale_lease_recovery(btc_app,monkeypatch):
+    c,wall,db=btc_app;sid=start(c);base='/api/bitcoin/sessions/'+sid
+    saved=json.loads(db.execute('SELECT state FROM sessions WHERE id=?',(sid,)).fetchone()[0])
+    saved.update(status='finished',elapsed=300)
+    saved['report_delivery'].update(status='sending',lease='another-worker',started_at=wall[0])
+    db.execute('UPDATE sessions SET state=? WHERE id=?',(json.dumps(saved),sid));db.commit()
+    sent=[]
+    monkeypatch.setattr(main.bitcoin_service,'email',lambda request,sid,body:sent.append(body.email))
+    assert c.get(base).json()['report_delivery']['status']=='sending' and not sent
+    wall[0]+=61
+    assert c.get(base).json()['report_delivery']['status']=='accepted' and sent==['reader@example.test']
+    assert c.get(base).json()['report_delivery']['status']=='accepted' and len(sent)==1

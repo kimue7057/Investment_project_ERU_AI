@@ -12,7 +12,7 @@ const cycles=[
   {name:'2차 사이클',period:'2020.05 - 2023.06'},
   {name:'3차 사이클',period:'2023.07 - 2026.05'},
 ];
-const state={config:null,run:null,amountDraft:defaultCapital(lang()),amountEdited:false,reportEmailDraft:'',reportSending:false,cycle:0,event:0,busy:false,records:[],error:'',booting:true};
+const state={config:null,run:null,amountDraft:defaultCapital(lang()),amountEdited:false,reportEmailDraft:'',reportConsent:false,cycle:0,event:0,busy:false,records:[],error:'',booting:true};
 let pollTimer,pollPromise=null,pollFailures=0,lastRoute='',previousFocus=null,toastTimer,chartSerial=0;
 const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const signed=n=>(n>0?'+':'')+money(n);
@@ -68,10 +68,10 @@ function render(){
   document.title=({home:t('Bitcoin Risk Guard','비트코인 리스크 가드'),amount:t('Your capital','내 투자금'),simulation:t('Live comparison','자동 비교'),results:t('Your results','비교 결과'),review:t('Response review','대응 복기'),records:t('Your records','내 기록'),settings:t('Settings','설정')}[page])+' · ERU AI';
   schedulePoll();
 }
-function schedulePoll(){clearTimeout(pollTimer);if(route()==='simulation'&&state.run?.status==='running'&&!document.hidden&&pollFailures<3)pollTimer=setTimeout(poll,1400);}
+function schedulePoll(){clearTimeout(pollTimer);if(((route()==='simulation'&&state.run?.status==='running')||(route()==='results'&&['scheduled','sending'].includes(state.run?.report_delivery?.status)))&&!document.hidden&&pollFailures<3)pollTimer=setTimeout(poll,1400);}
 async function poll(){
   if(state.busy||pollPromise||document.hidden){schedulePoll();return;}const sid=state.run?.id;if(!sid)return;
-  pollPromise=(async()=>{try{let g=await api('/sessions/'+sid+'?view='+state.cycle);if(state.run?.id!==sid)return;const old=state.run.current_cycle;if(g.current_cycle!==old&&g.status!=='finished')g=await api('/sessions/'+sid+'?view='+g.current_cycle);receive(g,{follow:g.current_cycle!==old});pollFailures=0;state.error='';if(route()!=='simulation')return;if(g.status==='finished'){navigate('results');return;}const d=cycleData();const live=document.getElementById('live-content');if(live&&d?.metrics)live.innerHTML=liveContent(d,d.events.at(-1));document.querySelectorAll('[data-action="sim-cycle"]').forEach((b,i)=>{b.disabled=i>g.current_cycle;b.classList.toggle('active',i===state.cycle);b.setAttribute('aria-pressed',i===state.cycle?'true':'false');});}catch(e){pollFailures++;state.error=e.message;if(pollFailures>=3)render();}})();
+  pollPromise=(async()=>{try{let g=await api('/sessions/'+sid+'?view='+state.cycle);if(state.run?.id!==sid)return;const old=state.run.current_cycle;if(g.current_cycle!==old&&g.status!=='finished')g=await api('/sessions/'+sid+'?view='+g.current_cycle);receive(g,{follow:g.current_cycle!==old});pollFailures=0;state.error='';if(route()==='results'){render();return;}if(route()!=='simulation')return;if(g.status==='finished'){navigate('results');return;}const d=cycleData();const live=document.getElementById('live-content');if(live&&d?.metrics)live.innerHTML=liveContent(d,d.events.at(-1));document.querySelectorAll('[data-action="sim-cycle"]').forEach((b,i)=>{b.disabled=i>g.current_cycle;b.classList.toggle('active',i===state.cycle);b.setAttribute('aria-pressed',i===state.cycle?'true':'false');});}catch(e){pollFailures++;state.error=e.message;if(pollFailures>=3)render();}})();
   await pollPromise;pollPromise=null;schedulePoll();
 }
 async function perform(fn){if(state.busy)return;state.busy=true;document.body.classList.add('is-busy');app.querySelectorAll('button').forEach(b=>b.disabled=true);clearTimeout(pollTimer);if(pollPromise)await pollPromise;try{await fn();state.error='';}catch(e){state.error=e.message;}finally{state.busy=false;document.body.classList.remove('is-busy');render();}}
@@ -96,7 +96,7 @@ function method(){return modal(t('How the comparison works','비교 결과를 �
 ['This is a historical simulation, with no deposit or exchange orders. Past performance does not guarantee future results.','과거 모의 결과로 실제 입금·주문은 없어요. 과거 결과가 미래 성과를 보장하지 않아요.']
 ].map(([en,ko])=>`<li>${t(en,ko)}</li>`).join('')}</ul><button class="btn dark wide" data-action="close-modal">${t('Got it','확인했어요')}</button>`);}
 function flow(){return modal(t('Your comparison journey','투자금부터 대응 복기까지'),`<ol class="flow-list">${[
-['Your capital','내 투자금 입력','Start without signing in or getting a code.','로그인과 인증번호 없이 바로 시작해요.'],
+['Email & capital','이메일과 투자금 입력','Register your email for an automatic report. No verification code.','이메일을 등록하면 완료 후 보고서를 자동으로 보내요. 인증번호는 필요 없어요.'],
 ['Automatic comparison','세 사이클 자동 비교','Follow both accounts across real historical daily candles.','과거 실제 일봉으로 두 계좌를 함께 계산해요.'],
 ['Results','결과 확인','Compare drawdowns and final assets together.','낙폭과 종료 자산을 함께 비교해요.'],
 ['Review responses','대응 복기','Explore signals, simulated trades and asset changes.','신호·모의 체결·자산 변화를 확인해요.']
@@ -119,21 +119,24 @@ function closeSplash(){
   if(splashFocus?.isConnected&&!root.contains(splashFocus))splashFocus.focus({preventScroll:true});else app.focus({preventScroll:true});
   splashExitTimer=setTimeout(()=>{root.hidden=true;root.classList.remove('video-ready');root.innerHTML='';},300);
 }
-document.addEventListener('input',e=>{if(e.target.id==='report-email'){state.reportEmailDraft=e.target.value;if(!state.reportSending){const button=document.querySelector('#report-form button[type=submit]');button.disabled=!state.config?.email_ready;button.textContent=t('Send my full report','상세 보고서 보내기');}}if(e.target.id==='amount-input'){state.amountEdited=true;const n=parseAmount(e.target.value,lang());if(n!==null)state.amountDraft=n;document.getElementById('amount-error').textContent='';}});
+document.addEventListener('input',e=>{if(e.target.id==='start-email')state.reportEmailDraft=e.target.value;if(e.target.id==='start-consent')state.reportConsent=e.target.checked;if(e.target.id==='amount-input'){state.amountEdited=true;const n=parseAmount(e.target.value,lang());if(n!==null)state.amountDraft=n;document.getElementById('amount-error').textContent='';}});
 document.addEventListener('submit',async e=>{
-  if(e.target.id==='amount-form'){e.preventDefault();const n=parseAmount(document.getElementById('amount-input').value,lang(),state.amountDraft);if(n===null||n<10000||n>10000000000){const [min,max]=amountLimits('en');document.getElementById('amount-error').textContent=t(`Enter S$${min.toFixed(2)} to S$${max.toLocaleString('en-SG',{minimumFractionDigits:2})}, with up to 2 decimal places.`,'1만 원부터 100억 원까지 숫자로 입력해 주세요.');return;}state.amountDraft=n;await perform(async()=>{if(state.run?.status==='running')await api('/sessions/'+state.run.id+'/playback',{action:'pause'});const run=await api('/sessions',{amount:n.toFixed(2)});state.cycle=0;state.event=0;receive(run,{follow:true});await navigate('simulation');});}
-  if(e.target.id==='report-form'){e.preventDefault();if(!state.run||state.run.status!=='finished'||state.reportSending)return;const email=document.getElementById('report-email').value.trim(),consent=document.getElementById('report-consent').checked,website=document.getElementById('report-website').value;if(!consent)return;const button=e.target.querySelector('button[type="submit"]'),status=document.getElementById('email-status');state.reportSending=true;button.disabled=true;button.textContent=t('Submitting…','메일 발송 접수 중…');try{const result=await api('/sessions/'+state.run.id+'/email',{email,consent,website,locale:lang()});status.textContent=result.already_sent?t('This report has already been sent to this address. Please check your inbox and spam folder.','이 주소로 이미 발송한 보고서예요. 받은편지함과 스팸함을 확인해 주세요.'):t('Your charts, full review and company introduction were accepted for delivery. Check your inbox and spam folder.','그래프·전체 복기·회사 소개 메일의 발송을 접수했어요. 받은편지함과 스팸함을 확인해 주세요.');button.textContent=t('Request accepted','발송 접수 완료');}catch(err){status.textContent=errorText(err.message);button.disabled=!state.config?.email_ready;button.textContent=t('Try again','다시 요청하기');}finally{state.reportSending=false;}}
+  if(e.target.id!=='amount-form')return;e.preventDefault();if(!e.target.reportValidity())return;
+  const n=parseAmount(document.getElementById('amount-input').value,lang(),state.amountDraft);
+  if(n===null||n<10000||n>10000000000){const [min,max]=amountLimits('en');document.getElementById('amount-error').textContent=t(`Enter S$${min.toFixed(2)} to S$${max.toLocaleString('en-SG',{minimumFractionDigits:2})}, with up to 2 decimal places.`,'1만 원부터 100억 원까지 숫자로 입력해 주세요.');return;}
+  const email=document.getElementById('start-email').value.trim(),consent=document.getElementById('start-consent').checked,website=document.getElementById('start-website').value;
+  state.amountDraft=n;await perform(async()=>{if(state.run?.status==='running')await api('/sessions/'+state.run.id+'/playback',{action:'pause'});const run=await api('/sessions',{amount:n.toFixed(2),email,consent,website,locale:lang()});state.reportEmailDraft='';state.reportConsent=false;state.cycle=0;state.event=0;receive(run,{follow:true});await navigate('simulation');});
 });
 document.addEventListener('click',async e=>{
   const link=e.target.closest('a[href^="#"]');if(link){e.preventDefault();await perform(()=>navigate(link.hash.slice(1)||'home'));return;}
   if(e.target.classList.contains('modal-backdrop'))return closeModal();const el=e.target.closest('[data-action]');if(!el||el.disabled)return;const a=el.dataset.action;
-  if(a==='intro'){splash();return;}if(a==='skip-splash'){closeSplash();return;}if(a==='close-modal'){closeModal();return;}if(a==='dismiss-error'){state.error='';render();return;}
-  if(a==='email-report'){document.getElementById('email-report')?.scrollIntoView({behavior:'smooth',block:'start'});document.getElementById('report-email')?.focus({preventScroll:true});return;}
+  if(a==='skip-splash'){closeSplash();return;}if(a==='close-modal'){closeModal();return;}if(a==='dismiss-error'){state.error='';render();return;}
+  if(a==='email-report'){document.getElementById('email-report')?.scrollIntoView({behavior:'smooth',block:'start'});return;}
   if(a==='language'){setLanguage(el.dataset.language);if(!state.amountEdited)state.amountDraft=defaultCapital(lang());render();return;}
   if(a==='preset'){state.amountEdited=true;state.amountDraft=Number(el.dataset.amount);document.getElementById('amount-input').value=inputAmount(state.amountDraft,lang());document.getElementById('amount-error').textContent='';app.querySelectorAll('[data-action="preset"]').forEach(x=>x.classList.toggle('selected',x===el));return;}
   await perform(async()=>{
     if(a==='settings')await navigate('settings');else if(a==='back')await navigate(({amount:'home',simulation:'amount',review:'results',results:'home',records:'home',settings:'home'})[route()]||'home');else if(a==='begin')await navigate('amount');else if(a==='method')await method();else if(a==='flow')await flow();else if(a==='start-from-flow'){closeModal();await navigate('amount');}
-    else if(a==='play')await playback(state.run.status==='running'?'pause':'resume');else if(a==='speed')await playback('speed',Number(el.dataset.speed));else if(a==='next-event')await playback('next');else if(a==='finish')await playback('finish');else if(a==='resume'){await playback('resume');await navigate('simulation');}
+    else if(a==='play')await playback(state.run.status==='running'?'pause':'resume');else if(a==='speed')await playback('speed',Number(el.dataset.speed));else if(a==='next-event')await playback('next');else if(a==='finish'){toast(t('Finishing your comparison and preparing the email report…','비교를 마치고 이메일 보고서를 준비하고 있어요…'));await playback('finish');}else if(a==='retry-delivery')receive(await api('/sessions/'+state.run.id+'/delivery/retry',{}));else if(a==='resume'){await playback('resume');await navigate('simulation');}
     else if(a==='sim-cycle'){state.cycle=Number(el.dataset.cycle);const g=await api('/sessions/'+state.run.id+'?view='+state.cycle);receive(g);render();}
     else if(a==='result-cycle'){state.cycle=Number(el.dataset.cycle);remember();render();document.getElementById('result-detail').scrollIntoView({behavior:'smooth',block:'start'});}
     else if(a==='review-cycle'){state.cycle=Number(el.dataset.cycle);state.event=0;remember();await navigate('review');}

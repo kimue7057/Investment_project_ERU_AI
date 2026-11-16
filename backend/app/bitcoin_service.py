@@ -28,10 +28,6 @@ class Strict(BaseModel):
     model_config=ConfigDict(extra="forbid",allow_inf_nan=False)
 
 
-class Start(Strict):
-    amount: Decimal=Field(ge=10000,le=10000000000,max_digits=13,decimal_places=2)
-
-
 class Playback(Strict):
     action: Literal["pause","resume","speed","next","finish"]
     speed: Literal[1,4,8]|None=None
@@ -47,6 +43,14 @@ class SendReport(Strict):
     @classmethod
     def normalize(cls,value):
         return value.strip().lower() if isinstance(value,str) else value
+
+
+class Start(SendReport):
+    amount: Decimal=Field(ge=10000,le=10000000000,max_digits=13,decimal_places=2)
+
+
+class RetryDelivery(Strict):
+    pass
 
 
 class BitcoinService:
@@ -116,17 +120,29 @@ class BitcoinService:
                 continue
         raise HTTPException(409,"다른 요청을 처리 중이에요. 잠시 후 다시 시도해 주세요.")
 
-    def create(self,request,amount):
+    def public(self,state,view=None):
+        result=self.engine.public(state,view)
+        delivery=state.get("report_delivery")
+        if delivery:
+            # 수신 주소·동의 기록·발송 임대·제공자 응답은 서버에만 보관한다.
+            result["report_delivery"]={k:delivery[k] for k in
+                ("status","recipient","locale","error_code") if k in delivery}
+        return result
+
+    def create(self,request,body):
         if self.engine is None:
             raise HTTPException(503,"검증된 비트코인 데이터를 준비하고 있어요.")
         token,owner=self.token(request,True)
         with self.lock:
             self.quota("create",owner,3600,20)
             now=self.clock();sid=str(uuid.uuid4())
-            state={"id":sid,"mode":MODE,"model_version":MODEL_VERSION,"market_sha":self.engine.fingerprint,"visitor_hash":owner,"amount":str(amount),"created_at":now,
-                "anchor":now,"elapsed":0.0,"speed":4,"status":"running","email_receipts":{}}
+            local,domain=body.email.split("@")
+            state={"id":sid,"mode":MODE,"model_version":MODEL_VERSION,"market_sha":self.engine.fingerprint,"visitor_hash":owner,"amount":str(body.amount),"created_at":now,
+                "anchor":now,"elapsed":0.0,"speed":4,"status":"running","email_receipts":{},
+                "report_delivery":{"email":body.email,"recipient":local[:1]+"***@"+domain,
+                    "locale":body.locale,"consented_at":now,"status":"scheduled"}}
             self.write(sid,state,None)
-        return token,self.engine.public(state)
+        return token,self.public(state)
 
     def advance(self,s):
         now=self.clock()
@@ -140,7 +156,7 @@ class BitcoinService:
                     s["status"]="finished"
         s["anchor"]=now
 
-    def change(self,request,sid,action=None,view=None,raw=False):
+    def change(self,request,sid,action=None,view=None,raw=False,auto_delivery=True):
         if self.engine is None:
             raise HTTPException(503,"검증된 비트코인 데이터를 준비하고 있어요.")
         _,owner=self.token(request)
@@ -165,10 +181,56 @@ class BitcoinService:
                 try:
                     if persist:
                         self.write(sid,state,rev)
-                    return state if raw else self.engine.public(state,view)
+                    break
                 except StorageConflict:
                     continue
-        raise HTTPException(409,"다른 요청을 처리 중이에요. 잠시 후 다시 시도해 주세요.")
+            else:
+                raise HTTPException(409,"다른 요청을 처리 중이에요. 잠시 후 다시 시도해 주세요.")
+        # 완료 결과를 먼저 저장하고, 잠금을 해제한 뒤 메일을 만든다.
+        if auto_delivery and state["status"]=="finished":
+            state=self.deliver(request,sid,state)
+        return state if raw else self.public(state,view)
+
+    def deliver(self,request,sid,state):
+        delivery=state.get("report_delivery",{})
+        if delivery.get("status") not in ("scheduled","sending"):
+            return state
+        lease=secrets.token_hex(16)
+        def claim(s):
+            d=s.get("report_delivery",{})
+            if d.get("status")=="scheduled" or (d.get("status")=="sending" and self.clock()-d.get("started_at",0)>=60):
+                d.update(status="sending",lease=lease,started_at=self.clock())
+        state=self.change(request,sid,claim,raw=True,auto_delivery=False)
+        d=state.get("report_delivery",{})
+        if d.get("lease")!=lease:
+            return state
+        error=None
+        try:
+            self.email(request,sid,SendReport(email=d["email"],consent=True,locale=d["locale"]))
+        except Exception as exc:
+            # 결과 조회는 발송 장애와 분리하며 제공자 원문을 노출하지 않는다.
+            error="rate_limited" if isinstance(exc,HTTPException) and exc.status_code==429 else "unavailable"
+        def finish(s):
+            current=s["report_delivery"]
+            if current.get("lease")!=lease:return
+            current.pop("lease",None)
+            if error:
+                current.update(status="failed",error_code=error)
+            else:
+                current.update(status="accepted",accepted_at=self.clock())
+                current.pop("email",None)
+                current.pop("error_code",None)
+        return self.change(request,sid,finish,raw=True,auto_delivery=False)
+
+    def retry_delivery(self,request,sid):
+        def retry(s):
+            if s["status"]!="finished" or not s.get("report_delivery"):
+                raise HTTPException(400,"시작할 때 이메일을 등록한 완료 기록만 다시 발송할 수 있어요.")
+            d=s["report_delivery"]
+            if d["status"]=="failed":
+                d["status"]="scheduled"
+                d.pop("error_code",None)
+        return self.change(request,sid,retry)
 
     def playback(self,request,sid,body):
         def apply(s):
@@ -223,7 +285,7 @@ class BitcoinService:
             if pending and self.clock()-pending["at"]<60:
                 raise HTTPException(409,"이 결과의 메일을 발송하고 있어요. 잠시 후 확인해 주세요.")
             s["email_pending"]={"digest":digest,"at":self.clock(),"lease":lease}
-        state=self.change(request,sid,claim,raw=True)
+        state=self.change(request,sid,claim,raw=True,auto_delivery=False)
         if receipt_key in state.get("email_receipts",{}):
             return {"status":"accepted","already_sent":True}
         try:
@@ -237,12 +299,12 @@ class BitcoinService:
         except HTTPException:
             def release(s):
                 if s.get("email_pending",{}).get("lease")==lease:s.pop("email_pending",None)
-            self.change(request,sid,release)
+            self.change(request,sid,release,auto_delivery=False)
             raise
         def finish(s):
             s.setdefault("email_receipts",{})[receipt_key]={"at":self.clock(),"id":message_id}
             if s.get("email_pending",{}).get("lease")==lease:s.pop("email_pending",None)
-        self.change(request,sid,finish)
+        self.change(request,sid,finish,auto_delivery=False)
         return {"status":"accepted","already_sent":False}
 
 
@@ -259,7 +321,7 @@ def make_router(provider,lock):
 
     @router.post("/sessions")
     def start(body:Start,request:Request):
-        token,result=service.create(request,body.amount)
+        token,result=service.create(request,body)
         response=JSONResponse(result)
         response.set_cookie(COOKIE,token,max_age=86400*30,httponly=True,
             secure=os.environ.get("VERCEL")=="1" or request.url.scheme=="https",samesite="lax",path="/")
@@ -276,6 +338,10 @@ def make_router(provider,lock):
     @router.post("/sessions/{sid}/email")
     def email(sid:str,body:SendReport,request:Request):
         return service.email(request,sid,body)
+
+    @router.post("/sessions/{sid}/delivery/retry")
+    def retry_delivery(sid:str,body:RetryDelivery,request:Request):
+        return service.retry_delivery(request,sid)
 
     @router.get("/records")
     def records(request:Request):
