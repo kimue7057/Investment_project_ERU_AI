@@ -1,23 +1,23 @@
 import {FX,krwPerSgd,currencyCode,inputAmount,parseAmount,amountLimits,defaultCapital} from './currency';
 import './styles.css';
 import {markerLayout} from '../reviewModel';
-import {t,lang,setLanguage,cycleName,money,typeLabel,eventText,errorText} from './i18n';
+import {t,lang,setLanguage,setCycleMode,cycleName,money,typeLabel,eventText,errorText} from './i18n';
 import {createViews} from './views';
 
 const app=document.getElementById('app');
 const LOGO='/assets/riskguard-logo.webp';
 const LAST='eru-btc-last-session-v1';
 const cycles=[
-  {name:'1차 사이클',period:'2016.07 - 2020.04'},
-  {name:'2차 사이클',period:'2020.05 - 2023.06'},
-  {name:'3차 사이클',period:'2023.07 - 2026.05'},
+  {name:'1차 사이클',period:'2017.12.16 - 2018.12.15'},
+  {name:'2차 사이클',period:'2021.11.08 - 2022.11.21'},
+  {name:'3차 사이클',period:'2025.10.06 - 2026.02.05'},
 ];
-const state={config:null,contact:null,emailEditing:false,run:null,amountDraft:defaultCapital(lang()),amountEdited:false,reportEmailDraft:'',reportConsent:false,cycle:0,event:0,busy:false,records:[],error:'',booting:true};
+const state={config:null,contact:null,emailEditing:false,run:null,amountDraft:defaultCapital(lang()),amountEdited:false,reportEmailDraft:'',reportConsent:false,cycle:0,event:0,reviewPhase:'bear',phaseChanged:false,busy:false,records:[],error:'',booting:true};
 let pollTimer,pollPromise=null,pollFailures=0,lastRoute='',previousFocus=null,toastTimer,chartSerial=0;
 const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const signed=n=>(n>0?'+':'')+money(n);
 const percent=n=>(n>0?'+':'')+Number(n).toFixed(1)+'%';
-const cycleData=()=>state.run?.cycles[state.cycle];
+const cycleData=()=>{const c=state.run?.cycles[state.cycle];return route()==='review'&&state.reviewPhase==='preparation'&&c?.preparation?c.preparation:c;};
 function route(){if(!state.booting&&!state.contact?.registered)return 'email';const p=location.hash.slice(1)||'home';return ['home','email','amount','simulation','results','review','records','settings'].includes(p)?p:'home';}
 function tabs(action='cycle'){return `<div class="cycle-tabs" role="group" aria-label="${t('Market cycles','사이클 선택')}">${cycles.map((c,i)=>`<button data-action="${action}" data-cycle="${i}" class="${state.cycle===i?'active':''}" aria-pressed="${state.cycle===i}" ${state.run&&i>state.run.current_cycle?'disabled':''}>${cycleName(i)}</button>`).join('')}</div>`;}
 function legend(){return `<div class="legend"><span><i></i>${t('Buy & hold','단순 보유')}</span><span><i class="green"></i>${t('Risk Guard','리스크 가드')}</span><small>${currencyCode(lang())}</small></div>`;}
@@ -27,11 +27,11 @@ async function api(path,body,keepalive=false){
   if(!response.ok)throw Object.assign(new Error(typeof data.detail==='string'?data.detail:'요청을 처리하지 못했어요.'),{status:response.status});
   return data;
 }
-function remember(){if(!state.run)return;try{localStorage.setItem(LAST,state.run.id);sessionStorage.setItem('eru-btc-view-'+state.run.id,JSON.stringify({cycle:state.cycle,event:state.event}));}catch{}}
-function receive(run,{follow=false}={}){state.run=run;if(follow||state.cycle>run.current_cycle)state.cycle=run.view_cycle;state.event=Math.min(state.event,Math.max(0,(cycleData()?.events.length||1)-1));remember();}
+function remember(){if(!state.run)return;try{localStorage.setItem(LAST,state.run.id);sessionStorage.setItem('eru-btc-view-'+state.run.id,JSON.stringify({cycle:state.cycle,event:state.event,phase:state.reviewPhase}));}catch{}}
+function receive(run,{follow=false}={}){const prior=state.run?.cycles[state.cycle]?.phase;state.run=run;if(follow||state.cycle>run.current_cycle)state.cycle=run.view_cycle;state.phaseChanged=state.phaseChanged||Boolean(route()==='simulation'&&prior&&prior!==run.cycles[state.cycle]?.phase);state.event=Math.min(state.event,Math.max(0,(cycleData()?.events.length||1)-1));remember();}
 function errorBox(){return state.error?`<div class="global-error" role="alert"><span>${escape(errorText(state.error))}</span><button data-action="retry">${t('Try again','다시 연결')}</button><button data-action="dismiss-error" aria-label="${t('Dismiss error','오류 닫기')}">×</button></div>`:'';}
 function chart(c,{mini=false,markers=false}={}){
-  const data=state.run?.cycles[c];const history=data?.history||[];
+  const root=state.run?.cycles[c];const data=route()==='review'&&state.reviewPhase==='preparation'&&root?.preparation?root.preparation:root;const history=data?.history||[];
   if(!history.length)return `<div class="chart-empty">${t('The asset chart appears as this cycle progresses.','해당 구간을 진행하면 자산 곡선이 나타나요.')}</div>`;
   const mobile=matchMedia('(max-width:600px)').matches;
   const width=mini?340:820,height=mini?100:400,left=mini?2:mobile?130:70,right=mini?2:16,top=mini?8:20,bottom=mini?7:34;
@@ -46,7 +46,7 @@ function chart(c,{mini=false,markers=false}={}){
   const dots=markers?(data.events||[]).map((ev,i)=>{const p=layout[i],cx=left+p.x/100*w,cy=top+p.y/100*h,ax=left+p.anchorX/100*w,ay=top+p.anchorY/100*h;return `<g class="chart-marker" role="button" tabindex="0" data-action="event" data-index="${i}" aria-label="${i+1} · ${ev.at} · ${typeLabel(ev.kind)}"><line x1="${ax}" y1="${ay}" x2="${cx}" y2="${cy}" stroke="#aab6cb" stroke-width="1"/><circle class="chart-mark ${state.event===i?'chosen':''}" cx="${cx}" cy="${cy}" r="${state.event===i?14:12}"/><text class="chart-mark-text ${state.event===i?'chosen':''}" x="${cx}" y="${cy+3.5}" text-anchor="middle">${i+1}</text></g>`;}).join(''):'';
   return `<svg class="asset-chart" viewBox="0 0 ${width} ${height}" role="${markers?'group':'img'}" aria-label="${cycleName(c)} · ${t('Calculated asset comparison','실제 계산된 총자산 비교')}"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#278d76" stop-opacity=".12"/><stop offset="1" stop-color="#278d76" stop-opacity="0"/></linearGradient></defs>${grid}<path d="${path('guard')} L${x(history.at(-1))},${top+h} L${left},${top+h}Z" fill="url(#${id})"/><path class="line-hold" d="${path('hold')}"/><path class="line-guard" d="${path('guard')}"/>${dots}${labels}</svg>`;
 }
-const {home,emailSetup,amount,simulation,liveContent,results,review,recordsPage,settings}=createViews({state,cycles,LOGO,chart,tabs,legend,percent,signed,escape});
+const {home,emailSetup,amount,simulation,liveContent,results,review,recordsPage,settings}=createViews({state,cycles,LOGO,chart,tabs,legend,percent,signed,escape,cycleData});
 function chrome(){
   document.documentElement.lang=lang();
   const page=route(),labels={home:t('Home','홈'),results:t('Results','결과'),records:t('Records','기록'),settings:t('Settings','설정')};
@@ -57,21 +57,21 @@ function chrome(){
   document.getElementById('header-language').textContent=lang()==='ko'?'한국어':'EN';
   document.getElementById('header-language').setAttribute('aria-label',t('Language settings','언어 설정'));
   document.querySelector('.site-footer').textContent=t('Historical simulation · No real trades · © ERUTY','과거 데이터 기반 모의 시뮬레이션 · 실제 거래 없음 · © ERUTY');
-  document.querySelector('meta[name="description"]').content=t('Compare Bitcoin buy-and-hold with Risk Guard across three historical cycles.','세 번의 비트코인 사이클에서 단순 보유와 리스크 가드의 자산 변화를 비교하세요.');
+  document.querySelector('meta[name="description"]').content=t('Follow cash preparation and compare Bitcoin buy-and-hold with Risk Guard across three historical declines.','현금 확보 과정과 대표 비트코인 하락장 세 구간의 자산 변화를 비교하세요.');
 }
 function render(){
-  clearTimeout(pollTimer);const page=route();chrome();document.body.dataset.view=page;document.querySelectorAll('[data-nav]').forEach(el=>{const yes=el.dataset.nav===page||(el.dataset.nav==='home'&&['amount','simulation'].includes(page))||(el.dataset.nav==='results'&&page==='review');el.classList.toggle('active',yes);if(yes)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');});
+  clearTimeout(pollTimer);const page=route();setCycleMode(!['simulation','results','review'].includes(page)||state.run?.model_version==='btc-bear-2');chrome();document.body.dataset.view=page;document.querySelectorAll('[data-nav]').forEach(el=>{const yes=el.dataset.nav===page||(el.dataset.nav==='home'&&['amount','simulation'].includes(page))||(el.dataset.nav==='results'&&page==='review');el.classList.toggle('active',yes);if(yes)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');});
   if(state.booting){app.innerHTML=`<div class="page"><section class="empty-state"><div class="loading-ring"></div><h2>${t('Preparing your market','시장을 준비하고 있어요')}</h2><p>${t('Checking verified data and saved records.','검증된 데이터와 이전 기록을 확인해요.')}</p></section></div>`;return;}
   app.innerHTML=errorBox()+({home,email:emailSetup,amount,simulation,results,review,records:recordsPage,settings}[page])();app.className='screen-enter';
   const timeline=app.querySelector('.review-timeline'),selected=timeline?.querySelector('.active');if(selected)timeline.scrollLeft=selected.offsetLeft-timeline.offsetLeft-timeline.clientWidth/2+selected.clientWidth/2;
-  if(page!==lastRoute){if(!matchMedia('(prefers-reduced-motion:reduce)').matches)app.animate([{opacity:.3,transform:'translateY(8px)'},{opacity:1,transform:'translateY(0)'}],{duration:180,easing:'ease-out'});app.scrollTo({top:0,behavior:'instant'});app.focus({preventScroll:true});lastRoute=page;}
+  if(page!==lastRoute||state.phaseChanged){if(!matchMedia('(prefers-reduced-motion:reduce)').matches)app.animate([{opacity:.3,transform:'translateY(8px)'},{opacity:1,transform:'translateY(0)'}],{duration:180,easing:'ease-out'});app.scrollTo({top:0,behavior:'instant'});app.focus({preventScroll:true});lastRoute=page;state.phaseChanged=false;}
   document.title=({home:t('Bitcoin Risk Guard','비트코인 리스크 가드'),email:t('Report email','보고서 이메일 설정'),amount:t('Your capital','내 투자금'),simulation:t('Live comparison','자동 비교'),results:t('Your results','비교 결과'),review:t('Response review','대응 복기'),records:t('Your records','내 기록'),settings:t('Settings','설정')}[page])+' · ERU AI';
   schedulePoll();
 }
 function schedulePoll(){clearTimeout(pollTimer);if(((route()==='simulation'&&state.run?.status==='running')||(route()==='results'&&['scheduled','sending'].includes(state.run?.report_delivery?.status)))&&!document.hidden&&pollFailures<3)pollTimer=setTimeout(poll,1400);}
 async function poll(){
   if(state.busy||pollPromise||document.hidden){schedulePoll();return;}const sid=state.run?.id;if(!sid)return;
-  pollPromise=(async()=>{try{let g=await api('/sessions/'+sid+'?view='+state.cycle);if(state.run?.id!==sid)return;const old=state.run.current_cycle;if(g.current_cycle!==old&&g.status!=='finished')g=await api('/sessions/'+sid+'?view='+g.current_cycle);receive(g,{follow:g.current_cycle!==old});pollFailures=0;state.error='';if(route()==='results'){render();return;}if(route()!=='simulation')return;if(g.status==='finished'){navigate('results');return;}const d=cycleData();const live=document.getElementById('live-content');if(live&&d?.metrics)live.innerHTML=liveContent(d,d.events.at(-1));document.querySelectorAll('[data-action="sim-cycle"]').forEach((b,i)=>{b.disabled=i>g.current_cycle;b.classList.toggle('active',i===state.cycle);b.setAttribute('aria-pressed',i===state.cycle?'true':'false');});}catch(e){pollFailures++;state.error=e.message;if(pollFailures>=3)render();}})();
+  pollPromise=(async()=>{try{let g=await api('/sessions/'+sid+'?view='+state.cycle);if(state.run?.id!==sid)return;const old=state.run.current_cycle;if(g.current_cycle!==old&&g.status!=='finished')g=await api('/sessions/'+sid+'?view='+g.current_cycle);receive(g,{follow:g.current_cycle!==old});pollFailures=0;state.error='';if(route()==='results'){render();return;}if(route()!=='simulation')return;if(g.status==='finished'){navigate('results');return;}if(state.phaseChanged){render();return;}const d=cycleData();const live=document.getElementById('live-content');if(live&&d?.metrics)live.innerHTML=liveContent(d,d.events.at(-1));document.querySelectorAll('[data-action="sim-cycle"]').forEach((b,i)=>{b.disabled=i>g.current_cycle;b.classList.toggle('active',i===state.cycle);b.setAttribute('aria-pressed',i===state.cycle?'true':'false');});}catch(e){pollFailures++;state.error=e.message;if(pollFailures>=3)render();}})();
   await pollPromise;pollPromise=null;schedulePoll();
 }
 async function perform(fn){if(state.busy)return;state.busy=true;document.body.classList.add('is-busy');app.querySelectorAll('button').forEach(b=>b.disabled=true);clearTimeout(pollTimer);if(pollPromise)await pollPromise;try{await fn();state.error='';}catch(e){state.error=e.message;}finally{state.busy=false;document.body.classList.remove('is-busy');render();}}
@@ -85,8 +85,8 @@ function chooseEvent(i){const events=cycleData()?.events||[];state.event=Math.ma
 function toast(text){const el=document.getElementById('toast');el.textContent=text;el.classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('visible'),4500);}
 async function modal(title,body){if(state.run?.status==='running')await playback('pause');previousFocus=document.activeElement;document.getElementById('modal-root').innerHTML=`<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button class="modal-close" data-action="close-modal" aria-label="${t('Close','닫기')}">×</button><h2 id="modal-title">${title}</h2>${body}</section></div>`;for(const e of [app,document.querySelector('.site-header'),document.querySelector('.bottom-nav'),document.querySelector('.site-footer')])e.inert=true;document.body.style.overflow='hidden';document.querySelector('.modal button').focus();}
 function closeModal(){document.getElementById('modal-root').innerHTML='';for(const e of [app,document.querySelector('.site-header'),document.querySelector('.bottom-nav'),document.querySelector('.site-footer')])e.inert=false;document.body.style.overflow='';if(previousFocus?.isConnected)previousFocus.focus({preventScroll:true});}
-function method(){return modal(t('How the comparison works','비교 결과를 읽는 기준'),`<p>${t('All three cycles start independently with the same capital.','세 사이클은 같은 입력 금액으로 독립적으로 계산해요.')}</p><ul class="method-list">${[
-['Both accounts begin with 100% Bitcoin at the first daily open of each cycle.','두 계좌 모두 각 사이클의 첫 일봉 시가에서 BTC 100%로 출발해요.'],
+function method(){return modal(t('How the comparison works','비교 결과를 읽는 기준'),`<p>${t('Each period is compared independently. The starting basis is explained below.','각 구간은 독립적으로 비교하며, 시작 기준은 아래와 같아요.')}</p><ul class="method-list">${[
+...(state.run?.model_version==='btc-guard-1'?[['Both accounts originally begin with 100% Bitcoin.','이전 전체 사이클은 두 계좌 모두 BTC 100%로 출발해요.']]:[['Preparation replays the original strategy from its first Bitcoin purchase. Each scenario spends 30% of playback on preparation and 70% on the decline.','사전 운용은 원래 첫 BTC 매수부터 재생해요. 각 구간 재생의 30%는 현금 확보, 70%는 하락장 비교예요.'],['At the bear-market start close, each account is independently rebased to the input capital. Risk Guard inherits its existing cash and Bitcoin mix. Earlier gains are excluded.','하락 시작일 종가에서 각 계좌를 입력 금액으로 독립 환산해요. 가드는 기존 현금·BTC 비중을 이어받으며, 이전 수익은 하락장 손익에 합산하지 않아요.'],['The three largest peak-to-trough closing-price declines were selected retrospectively, one from each original cycle. Their dates were not predicted.','각 원래 사이클에서 가장 큰 종가 고점·저점 하락 구간을 사후 선정했어요. 날짜를 사전에 예측한 결과가 아니에요.'],['The unchanged-mix benchmark separates existing cash holdings from subsequent trading effects.','같은 시작 비중을 고정 보유한 비교 계좌로 기존 현금과 추가 매매 효과를 구분해요.']]),
 ['Decisions use completed daily candles. Trades execute at the next daily open.','완료 일봉으로 판단하고 다음 일봉 시가에 분할 매매해요.'],
 ['A 0.05% fee per side applies to the initial purchase and every trade.','초기 매수와 각 매매에 편도 수수료 0.05%를 반영해요.'],
 ['English amounts are displayed in SGD; Korean amounts in KRW. The same capital uses the fixed ECB reference cross-rate of 13 November 2026 (1 SGD = '+krwPerSgd.toFixed(2)+' KRW). Historical FX changes, cash interest and slippage are excluded.','USD 가격 변동률을 원화 자본에 적용해요. 환율 변동·현금 이자·슬리피지는 미반영해요.'],
@@ -98,7 +98,7 @@ function method(){return modal(t('How the comparison works','비교 결과를 �
 function flow(){return modal(t('Your comparison journey','투자금부터 대응 복기까지'),`<ol class="flow-list">${[
 ['Report email','보고서 이메일 설정','First, save your email on its own screen. No verification code.','먼저 별도 화면에서 이메일을 저장해요. 인증번호는 필요 없어요.'],
 ['Your capital','투자금 설정','Next, choose your simulation capital.','다음 화면에서 시뮬레이션 투자금을 정해요.'],
-['Automatic comparison','세 사이클 자동 비교','Follow both accounts across real historical daily candles.','과거 실제 일봉으로 두 계좌를 함께 계산해요.'],
+['Cash preparation & declines','현금 확보와 세 하락장 비교','Watch preparation, then compare rebased accounts across three historical declines.','현금 확보 과정을 본 뒤, 같은 금액으로 환산한 두 계좌의 하락장 손실을 비교해요.'],
 ['Results','결과 확인','Compare drawdowns and final assets together.','낙폭과 종료 자산을 함께 비교해요.'],
 ['Review responses','대응 복기','Explore signals, simulated trades and asset changes.','신호·모의 체결·자산 변화를 확인해요.']
 ].map(([en,ko,ed,kd],i)=>`<li><span>0${i+1}</span><div><b>${t(en,ko)}</b><p>${t(ed,kd)}</p></div></li>`).join('')}</ol><button class="btn dark wide" data-action="start-from-flow">${t('Start with my capital','내 투자금으로 시작')} →</button>`);}
@@ -144,13 +144,13 @@ document.addEventListener('click',async e=>{
     else if(a==='play')await playback(state.run.status==='running'?'pause':'resume');else if(a==='speed')await playback('speed',Number(el.dataset.speed));else if(a==='next-event')await playback('next');else if(a==='finish'){toast(t('Finishing your comparison and preparing the email report…','비교를 마치고 이메일 보고서를 준비하고 있어요…'));await playback('finish');}else if(a==='retry-delivery')receive(await api('/sessions/'+state.run.id+'/delivery/retry',{}));else if(a==='resume'){await playback('resume');await navigate('simulation');}
     else if(a==='sim-cycle'){state.cycle=Number(el.dataset.cycle);const g=await api('/sessions/'+state.run.id+'?view='+state.cycle);receive(g);render();}
     else if(a==='result-cycle'){state.cycle=Number(el.dataset.cycle);remember();render();document.getElementById('result-detail').scrollIntoView({behavior:'smooth',block:'start'});}
-    else if(a==='review-cycle'){state.cycle=Number(el.dataset.cycle);state.event=0;remember();await navigate('review');}
+    else if(a==='review-phase'){state.reviewPhase=el.dataset.phase==='preparation'?'preparation':'bear';state.event=0;remember();render();}else if(a==='review-preparation'){state.reviewPhase='preparation';state.event=0;remember();await navigate('review');}else if(a==='review-cycle'){state.reviewPhase='bear';state.cycle=Number(el.dataset.cycle);state.event=0;remember();await navigate('review');}
     else if(a==='event'){const i=Number(el.dataset.index);if(route()==='simulation'){const ev=eventText(cycleData().events[i]);await modal(ev.title,`<p>${ev.action}</p><p class="fine" style="margin-top:18px">${t('Signal','판단')} ${ev.signal_at} · ${ev.kind==='wait'?t('No execution','체결 없음'):t('Simulated execution ','모의 체결 ')+ev.at}</p>`);}else chooseEvent(i);}
     else if(a==='event-info'){const ev=eventText(cycleData().events.find(x=>x.id===el.dataset.id));if(ev)await modal(ev.title,`<p>${ev.action}</p>`);}
     else if(a==='previous-review')chooseEvent(state.event-1);else if(a==='next-review')chooseEvent(state.event+1);else if(a==='first-buy'){const i=cycleData().events.findIndex(x=>x.kind==='buy');if(i>=0)chooseEvent(i);else toast(t('No re-entry is included in this cycle’s highlights. Check all responses.','이 구간의 주요 장면에 재매수가 없어요. 전체 대응 내역을 확인해 주세요.'));}
-    else if(a==='all-events')await allEvents();else if(a==='next-cycle-review'){state.cycle=(state.cycle+1)%3;state.event=0;remember();render();app.scrollTo({top:0,behavior:'smooth'});}
+    else if(a==='all-events')await allEvents();else if(a==='next-cycle-review'){state.cycle=(state.cycle+1)%3;state.reviewPhase='bear';state.event=0;remember();render();app.scrollTo({top:0,behavior:'smooth'});}
     else if(a==='results')await navigate('results');else if(a==='records')await navigate('records');
-    else if(a==='open-record'||a==='review-record'){const g=await api('/sessions/'+el.dataset.id);receive(g);state.cycle=0;state.event=0;await navigate(a==='review-record'?'review':g.status==='finished'?'results':'simulation');}
+    else if(a==='open-record'||a==='review-record'){const g=await api('/sessions/'+el.dataset.id);state.reviewPhase='bear';receive(g);state.cycle=0;state.event=0;await navigate(a==='review-record'?'review':g.status==='finished'?'results':'simulation');}
     else if(a==='retry'){pollFailures=0;state.config=await api('/config');state.contact=await api('/contact');if(!state.config.ready)throw new Error('검증된 데이터를 준비하고 있어요. 잠시 후 다시 시도해 주세요.');state.contact=await api('/contact');if(state.run)receive(await api('/sessions/'+state.run.id+'?view='+state.cycle));state.error='';render();}
   });
 });
@@ -159,5 +159,5 @@ window.addEventListener('hashchange',async()=>{try{if(route()!=='simulation'&&st
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&state.run?.status==='running')api('/sessions/'+state.run.id+'/playback',{action:'pause'},true).then(receive).catch(()=>{});else if(!document.hidden&&route()==='simulation'&&state.run)perform(async()=>{receive(await api('/sessions/'+state.run.id+'?view='+state.cycle));render();});});
 window.addEventListener('pagehide',()=>{if(state.run?.status==='running')api('/sessions/'+state.run.id+'/playback',{action:'pause'},true).catch(()=>{});});
 matchMedia('(max-width:600px)').addEventListener('change',()=>{if(!state.booting)render();});
-async function boot(){render();splash();try{state.config=await api('/config');state.contact=await api('/contact');if(!state.config.ready)state.error='검증된 비트코인 데이터를 준비하고 있어요. 잠시 후 다시 확인해 주세요.';let sid;try{sid=localStorage.getItem(LAST);}catch{}if(sid){try{let saved;try{saved=JSON.parse(sessionStorage.getItem('eru-btc-view-'+sid)||'null');}catch{}const g=await api('/sessions/'+sid);receive(g,{follow:true});if(saved&&Number.isInteger(saved.cycle)&&saved.cycle>=0&&saved.cycle<=g.current_cycle){state.cycle=saved.cycle;state.event=Number.isInteger(saved.event)?Math.min(Math.max(0,saved.event),Math.max(0,g.cycles[state.cycle].events.length-1)):0;if(g.status!=='finished')receive(await api('/sessions/'+sid+'?view='+state.cycle));}}catch(e){if(e.status!==404)state.error=e.message;}}if(route()==='records')state.records=(await api('/records')).records;}catch(e){state.error=e.message;}state.booting=false;if(state.contact?.registered&&location.hash==='#email')history.replaceState(null,'','#amount');render();}
+async function boot(){render();splash();try{state.config=await api('/config');state.contact=await api('/contact');if(!state.config.ready)state.error='검증된 비트코인 데이터를 준비하고 있어요. 잠시 후 다시 확인해 주세요.';let sid;try{sid=localStorage.getItem(LAST);}catch{}if(sid){try{let saved;try{saved=JSON.parse(sessionStorage.getItem('eru-btc-view-'+sid)||'null');}catch{}const g=await api('/sessions/'+sid);receive(g,{follow:true});if(saved&&Number.isInteger(saved.cycle)&&saved.cycle>=0&&saved.cycle<=g.current_cycle){state.cycle=saved.cycle;state.reviewPhase=saved.phase==='preparation'?'preparation':'bear';state.event=Number.isInteger(saved.event)?Math.min(Math.max(0,saved.event),Math.max(0,cycleData().events.length-1)):0;if(g.status!=='finished')receive(await api('/sessions/'+sid+'?view='+state.cycle));}}catch(e){if(e.status!==404)state.error=e.message;}}if(route()==='records')state.records=(await api('/records')).records;}catch(e){state.error=e.message;}state.booting=false;if(state.run)remember();if(state.contact?.registered&&location.hash==='#email')history.replaceState(null,'','#amount');render();}
 boot();

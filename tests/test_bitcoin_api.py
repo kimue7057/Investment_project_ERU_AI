@@ -37,6 +37,7 @@ def legacy_start(c):
     _,db=main.bitcoin_service.provider()
     state=json.loads(db.execute('SELECT state FROM sessions WHERE id=?',(sid,)).fetchone()[0])
     state.pop('report_delivery')
+    state['model_version']='btc-guard-1'
     db.execute('UPDATE sessions SET state=? WHERE id=?',(json.dumps(state),sid));db.commit()
     return sid
 
@@ -83,7 +84,7 @@ def test_input_validation_finish_and_records_do_not_accept_client_results(btc_ap
     assert g['status']=='finished' and len(g['cycles'])==3
     assert all(x['completed'] and x['all_events'] for x in g['cycles'])
     records=c.get('/api/bitcoin/records').json()['records']
-    assert records[0]['id']==sid and set(records[0])=={'id','amount','elapsed','status','created_at'}
+    assert records[0]['id']==sid and set(records[0])=={'id','amount','elapsed','status','created_at','model_version'}
 
 
 def test_next_scene_reveals_the_selected_event_at_daily_boundary(btc_app):
@@ -227,7 +228,7 @@ def test_registered_report_sends_automatically_once_after_completion(btc_app,mon
     if completion=='clock':
         for _ in range(8):wall[0]+=10;result=c.get(base)
     elif completion=='next':
-        for _ in range(65):
+        for _ in range(130):
             result=c.post(base+'/playback',json={'action':'next'})
             if result.json()['status']=='finished':break
     else:result=c.post(base+'/playback',json={'action':'finish'})
@@ -336,3 +337,16 @@ def test_retry_after_email_setting_change_uses_new_address(btc_app,monkeypatch):
     retried=c.post(base+'/delivery/retry',json={}).json()
     assert recipients==['after@example.test']
     assert retried['report_delivery']=={'status':'accepted','recipient':'a***@example.test','locale':'en'}
+
+
+def test_old_full_cycle_record_keeps_original_results_after_bear_deploy(btc_app):
+    c,_,_=btc_app;sid=legacy_start(c);base='/api/bitcoin/sessions/'+sid
+    g=c.post(base+'/playback',json={'action':'finish'}).json()
+    assert g['model_version']=='btc-guard-1'
+    assert g['cycles'][0]['start']=='2016-07-01' and g['cycles'][0]['end']=='2020-04-30'
+    assert g['cycles'][0]['metrics']['hold']['value']>g['cycles'][0]['metrics']['guard']['value']
+    sid_new=start(c)
+    new=c.post('/api/bitcoin/sessions/'+sid_new+'/playback',json={'action':'finish'}).json()
+    assert new['model_version']=='btc-bear-2' and new['cycles'][0]['start']=='2017-12-16'
+    assert new['cycles'][0]['metrics']['hold']['value']<new['cycles'][0]['metrics']['guard']['value']
+    assert c.get(base).json()['cycles']==g['cycles']

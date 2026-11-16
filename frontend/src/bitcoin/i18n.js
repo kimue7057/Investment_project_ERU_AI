@@ -5,7 +5,9 @@ try{if(localStorage.getItem(KEY)==='ko')language='ko';}catch{}
 export const lang=()=>language;
 export const t=(en,ko)=>language==='ko'?ko:en;
 export function setLanguage(value){language=value==='ko'?'ko':'en';try{localStorage.setItem(KEY,language);}catch{}document.documentElement.lang=language;}
-export const cycleName=i=>t(`Cycle ${i+1}`,`${i+1}차 사이클`);
+let bearMode=true;
+export const setCycleMode=value=>{bearMode=value;};
+export const cycleName=i=>bearMode?t(`Bear market ${i+1}`,`${i+1}차 하락장`):t(`Cycle ${i+1}`,`${i+1}차 사이클`);
 export const money=value=>formatMoney(value,language);
 export const typeLabel=kind=>({sell:t('Sell','일부 매도'),buy:t('Buy back','다시 매수'),wait:t('Wait','매수 보류')}[kind]||t('Hold','보유 유지'));
 export function eventText(e){if(!e||language==='ko')return e;return {...e,title:{sell:'Part of the Bitcoin position was sold',buy:'Bitcoin was bought back after conditions were met',wait:'Additional buying was put on hold'}[e.kind],signal:{sell:'A sell signal was confirmed on a completed daily candle.',buy:'Re-entry conditions were confirmed on a completed daily candle.',wait:'The market was falling, but re-entry conditions were not met.'}[e.kind],action:{sell:'Part of the Bitcoin position was sold at the next daily open to raise cash.',buy:'Part of the available cash was used to buy Bitcoin at the next daily open.',wait:'Bitcoin and cash were held without placing a new order.'}[e.kind],after:'Compare both accounts at the same point, then follow the subsequent asset changes.'};}

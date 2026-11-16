@@ -15,9 +15,10 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .bitcoin_engine import BitcoinEngine, CYCLES, MODEL_VERSION
+from .bitcoin_engine import BitcoinEngine, MODEL_VERSION as LEGACY_VERSION
+from .bitcoin_bear_engine import BitcoinBearEngine, SCENARIOS, MODEL_VERSION
 from .blob_store import StorageConflict
-from .result_mail import ResultMailer, REPORT_VERSION
+from .result_mail import ResultMailer, report_version
 
 COOKIE="eru_btc_visitor"
 MODE="bitcoin_v1"
@@ -62,9 +63,11 @@ class BitcoinService:
     def __init__(self,provider,lock,clock=time.time):
         self.provider,self.lock,self.clock=provider,lock,clock
         self.engine=None
+        self.legacy_engine=None
         self.mailer=ResultMailer()
         try:
-            self.engine=BitcoinEngine()
+            self.legacy_engine=BitcoinEngine()
+            self.engine=BitcoinBearEngine(self.legacy_engine)
         except (OSError,ValueError,KeyError):
             pass
 
@@ -126,13 +129,21 @@ class BitcoinService:
         raise HTTPException(409,"다른 요청을 처리 중이에요. 잠시 후 다시 시도해 주세요.")
 
     def public(self,state,view=None):
-        result=self.engine.public(state,view)
+        result=self.engine_for(state).public(state,view)
+        result.setdefault("model_version",LEGACY_VERSION)
         delivery=state.get("report_delivery")
         if delivery:
             # 수신 주소·동의 기록·발송 임대·제공자 응답은 서버에만 보관한다.
             result["report_delivery"]={k:delivery[k] for k in
                 ("status","recipient","locale","error_code") if k in delivery}
         return result
+
+    def engine_for(self,state):
+        version=state.get("model_version")
+        engine=self.engine if version==MODEL_VERSION else self.legacy_engine if version==LEGACY_VERSION else None
+        if engine is None or state.get("market_sha")!=engine.fingerprint:
+            raise HTTPException(409,"이 기록은 이전 계산 버전이에요. 새 비교를 시작해 주세요.")
+        return engine
 
     def contact_id(self,owner):
         return str(uuid.uuid5(uuid.NAMESPACE_URL,"eru/bitcoin/contact/"+owner))
@@ -218,8 +229,7 @@ class BitcoinService:
                 # 소유자 확인 전에 시계·저장·메일을 변경하지 않는다.
                 if saved.get("mode")!=MODE or not hmac.compare_digest(saved.get("visitor_hash",""),owner):
                     raise HTTPException(404,"이 브라우저의 비교 기록을 찾을 수 없어요.")
-                if saved.get("model_version")!=MODEL_VERSION or saved.get("market_sha")!=self.engine.fingerprint:
-                    raise HTTPException(409,"이 기록은 이전 계산 버전이에요. 새 비교를 시작해 주세요.")
+                self.engine_for(saved)
                 state=copy.deepcopy(saved)
                 self.advance(state)
                 if action:
@@ -298,11 +308,14 @@ class BitcoinService:
                 s["speed"]=body.speed
             elif body.action=="next":
                 cycle=min(2,int(s["elapsed"]//100));progress=s["elapsed"]-cycle*100
-                run=self.engine.runs[cycle];count=len(run["history"])-1
-                next_event=next((e for e in run["highlights"] if e["at_idx"]/count*100>progress+.05),None)
+                run=self.engine_for(s).runs[cycle];count=len(run["history"])-1
+                position=lambda e:e.get("position",e["at_idx"]/count*100)
+                targets=[position(e) for e in run["highlights"] if position(e)>progress+.05]
+                if s["model_version"]==MODEL_VERSION and progress<30-.05:targets.append(30)
+                next_position=min(targets) if targets else None
                 # 이진 부동소수점의 경계 바로 아래로 내림되어 선택한 장면이
                 # 보이지 않는 일을 막는다. 한 일봉보다 훨씬 작은 여유만 둔다.
-                s["elapsed"]=min((cycle+1)*100,cycle*100+(next_event["at_idx"]+1e-6)/count*100) if next_event else (cycle+1)*100
+                s["elapsed"]=min((cycle+1)*100,cycle*100+next_position+1e-7) if next_position is not None else (cycle+1)*100
                 s["status"]="finished" if s["elapsed"]>=300 else "paused"
         return self.change(request,sid,apply)
 
@@ -320,21 +333,23 @@ class BitcoinService:
                 states=[json.loads(r[0]) for r in db.execute("SELECT state FROM sessions WHERE json_extract(state,'$.mode')=? AND json_extract(state,'$.visitor_hash')=? ORDER BY json_extract(state,'$.created_at') DESC LIMIT 12",(MODE,owner))]
         except Exception:
             raise HTTPException(503,"비교 기록을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.") from None
-        return {"records":[{k:s[k] for k in ("id","amount","elapsed","status","created_at")}
+        return {"records":[{k:s[k] for k in ("id","amount","elapsed","status","created_at","model_version")}
             for s in states if s.get("mode")==MODE and hmac.compare_digest(s.get("visitor_hash",""),owner)]}
 
     def email(self,request,sid,body):
         if not self.mailer.configured:
             raise HTTPException(503,"결과 메일 발송을 준비하고 있어요. 화면의 결과와 복기는 계속 확인할 수 있어요.")
         digest=hashlib.sha256(body.email.encode()).hexdigest()
-        receipt_key=REPORT_VERSION+":"+digest
+        snapshot=self.change(request,sid,raw=True,auto_delivery=False)
+        version=report_version(snapshot)
+        receipt_key=version+":"+digest
         lease=secrets.token_hex(16)
         def claim(s):
             if s["status"]!="finished":
                 raise HTTPException(400,"비교를 마친 후 결과 메일을 받을 수 있어요.")
             if receipt_key in s.get("email_receipts",{}):
                 return
-            if sum(key.startswith(REPORT_VERSION+":") for key in s.get("email_receipts",{}))>=2:
+            if sum(key.startswith(version+":") for key in s.get("email_receipts",{}))>=2:
                 raise HTTPException(429,"이 비교 결과의 발송 횟수를 모두 사용했어요.")
             pending=s.get("email_pending")
             if pending and self.clock()-pending["at"]<60:
@@ -348,7 +363,7 @@ class BitcoinService:
                 self.quota("email-recipient",digest,86400,3)
                 self.quota("email-visitor",state["visitor_hash"],3600,4)
                 self.quota("email-global","all",86400,100)
-            report=self.engine.public(state)
+            report=self.public(state)
             report["locale"]=body.locale
             message_id=self.mailer.send(body.email,report)
         except HTTPException:
@@ -370,8 +385,10 @@ def make_router(provider,lock):
     @router.get("/config")
     def config():
         return {"ready":service.engine is not None,"email_ready":service.mailer.configured,"duration":300,
-            "cycles":[{"id":cid,"name":name,"start":start,"end":end} for cid,name,start,end in CYCLES],
-            "initial":"두 계좌 모두 BTC 100%로 동일 출발","fee_rate":.0005,
+            "model_version":MODEL_VERSION,
+            "cycles":[{"id":cid,"name":name,"start":start,"end":end,"preparation_start":prep_start}
+                for cid,name,prep_start,start,end in SCENARIOS],
+            "initial":"사전 현금 확보 후 하락 시작 평가액을 동일 금액으로 정규화","fee_rate":.0005,
             "currency_note":"USD 가격 변동률을 원화 자본에 적용하며 환율 변동과 현금 이자는 미반영합니다."}
 
     def with_cookie(token,result,request):

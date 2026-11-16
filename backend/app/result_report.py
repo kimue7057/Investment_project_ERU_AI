@@ -21,13 +21,14 @@ BG="#0c121e"; PANEL="#161f2e"; TEXT="#edf2fa"; MUTED="#8b9fbe"; GOLD="#edc17d"; 
 
 
 class Labels:
-    def __init__(self,locale="ko"):
+    def __init__(self,locale="ko",bear=False):
         self.locale=locale
+        self.bear=bear
 
     def t(self,en,ko):return en if self.locale=="en" else ko
     def money(self,value):return sgd_money(value) if self.locale=="en" else f"{value:,.0f}원"
     def signed(self,value):return ("+" if value>0 else "")+self.money(value)
-    def cycle(self,i):return self.t(f"Cycle {i+1}",f"{i+1}차 사이클")
+    def cycle(self,i):return self.t(f"Bear market {i+1}",f"{i+1}차 하락장") if self.bear else self.t(f"Cycle {i+1}",f"{i+1}차 사이클")
     def kind(self,e):return {"sell":self.t("SELL","분할 매도"),"buy":self.t("BUY BACK","재매수"),"wait":self.t("WAIT","매수 보류")}[e["kind"]]
     def action(self,e):
         return {"sell":self.t("Sold part of the Bitcoin position at the next daily open and raised cash.","다음 일봉 시가에 비트코인 일부를 매도하고 현금을 확보했어요."),
@@ -109,7 +110,7 @@ def register_font():
 
 
 def review_pdf(report,charts=None):
-    labels=Labels(report.get("locale","ko"));register_font()
+    labels=Labels(report.get("locale","ko"),report.get("model_version")=="btc-bear-2");register_font()
     output=io.BytesIO();page_w,page_h=A4
     styles={
         "title":ParagraphStyle("title",fontName="ERUNanum",fontSize=23,leading=32,textColor=colors.HexColor(TEXT),spaceAfter=15),
@@ -132,11 +133,23 @@ def review_pdf(report,charts=None):
     for i,c in enumerate(report["cycles"]):
         m=c["metrics"]
         rows.append([labels.cycle(i)+"\n"+c["start"]+" - "+c["end"],labels.money(m["hold"]["value"])+f"\nMDD {m['hold']['mdd_pct']:.1f}%",labels.money(m["guard"]["value"])+f"\nMDD {m['guard']['mdd_pct']:.1f}%"])
-    story.extend([table(rows,[width*.34,width*.33,width*.33]),Spacer(1,20),p(labels.t("Read both outcomes","낙폭과 최종 자산을 함께 확인하세요"),"head"),p(labels.t("A smaller drawdown can come with lower final assets. Each cycle starts independently with the same capital. Response scenes follow time order, not profitability.","낙폭이 줄어도 최종 자산은 단순 보유보다 적을 수 있어요. 각 사이클은 같은 자금으로 독립 시작해요. 복기 장면은 수익 크기가 아닌 시간 순서로 정리했어요.")),p(labels.t("The following pages contain all highlighted scenes and the full simulated response ledger.","다음 페이지에서 주요 복기 장면 전체와 전체 모의 대응 내역을 확인할 수 있어요."))])
+    story.extend([table(rows,[width*.34,width*.33,width*.33]),Spacer(1,20),p(labels.t("Read both outcomes","낙폭과 최종 자산을 함께 확인하세요"),"head"),p(labels.t("The decline dates were selected retrospectively. Preparation is shown before each bear period. Bear-period returns use equal starting values and inherited cash, excluding earlier gains. Full-cycle results may differ. Scenes follow time and response type, not profitability.","하락 구간은 사후 선정했습니다. 각 하락장 앞에 현금 확보 과정을 보여줍니다. 하락장 손익은 이전 수익을 제외하고 같은 시작 평가액과 기존 현금 비중으로 비교하며, 전체 사이클 결과와 다릅니다. 장면은 시간과 대응 종류로 선정했습니다.") if labels.bear else labels.t("A smaller drawdown can come with lower final assets. Each cycle starts independently with the same capital. Response scenes follow time order, not profitability.","낙폭이 줄어도 최종 자산은 단순 보유보다 적을 수 있어요. 각 사이클은 같은 자금으로 독립 시작해요. 복기 장면은 수익 크기가 아닌 시간 순서로 정리했어요.")),p(labels.t("The following pages contain all highlighted scenes and the full simulated response ledger.","다음 페이지에서 주요 복기 장면 전체와 전체 모의 대응 내역을 확인할 수 있어요."))])
+    sections=[]
     for i,c in enumerate(report["cycles"]):
-        m=c["metrics"];story.extend([PageBreak(),p(labels.cycle(i),"title"),p(c["start"]+" - "+c["end"],"small")])
-        image=(charts or {}).get(i) or (chart_png(c,labels.locale) if c.get("history") else None)
+        if c.get("preparation"):sections.append((i,c["preparation"]))
+        sections.append((i,c))
+    for i,c in sections:
+        m=c["metrics"];story.extend([PageBreak(),p(labels.cycle(i)+(" / "+labels.t("Cash preparation","현금 확보 과정") if c.get("phase")=="preparation" else " / "+labels.t("Bear-market comparison","하락장 비교") if labels.bear else ""),"title"),p(c["start"]+" - "+c["end"],"small")])
+        image=((charts or {}).get(i) if c.get("phase")!="preparation" else None) or (chart_png(c,labels.locale) if c.get("history") else None)
         if image:story.append(PdfImage(io.BytesIO(image),width=width,height=width*650/1440))
+        if c.get("phase")=="preparation":
+            story.append(p(labels.t("Original continuous-run values before rebasing. Gains from preparation are not added to the following bear-period results.","하락장 환산 전의 원래 연속 운용 금액입니다. 사전 운용 수익은 다음 하락장 손익에 합산하지 않습니다."),"small"))
+        if "frozen_allocation" in m:
+            frozen=m["frozen_allocation"]
+            story.extend([p(labels.t("Equal-value bear-period basis","하락 구간의 동일 평가액 기준"),"head"),p(labels.t(f"Each account is independently rebased to {labels.money(report['amount'])} at the starting close. Risk Guard inherits cash of {frozen['initial_cash_pct']:.1f}%. This is not a fresh 100% Bitcoin investment.",f"하락 시작 종가에서 두 계좌를 각각 {labels.money(report['amount'])}로 환산했습니다. 가드는 기존 현금 {frozen['initial_cash_pct']:.1f}%를 이어받습니다. BTC 100%로 새로 투자한 결과가 아닙니다.")),p(labels.t(f"Unchanged starting BTC/cash mix: {frozen['return_pct']:.1f}% / {labels.money(frozen['value'])}. Additional trading is not always better than holding this mix.",f"시작 BTC·현금 비중을 추가 매매 없이 유지했다면 {frozen['return_pct']:.1f}% / {labels.money(frozen['value'])}입니다. 추가 매매가 비중 고정보다 항상 유리하지는 않습니다."),"small")])
+        if c.get("full_cycle_context"):
+            context=c["full_cycle_context"]
+            story.append(p(labels.t(f"Original full cycle {context['start']} - {context['end']}: hold {labels.money(context['hold_value'])}, guard {labels.money(context['guard_value'])}. Uses original starting capital and is separate from this rebased period.",f"원래 전체 사이클 {context['start']} - {context['end']}: 단순 보유 {labels.money(context['hold_value'])}, 가드 {labels.money(context['guard_value'])}. 원래 시작 자금 기준이며 이번 하락장 환산 잔액과 별개입니다."),"small"))
         data=[[labels.t("Metric","비교 항목"),labels.t("Buy & hold","단순 보유"),labels.t("Risk Guard","리스크 가드")]]
         for key,name,fmt in [("value",labels.t("Final assets","최종 자산"),labels.money),("profit",labels.t("Profit / loss","손익"),labels.signed),("return_pct",labels.t("Return","수익률"),lambda x:f"{x:+.1f}%"),("mdd_pct",labels.t("Maximum drawdown","최대 낙폭"),lambda x:f"{x:.1f}%")]:
             if key in m["hold"]:data.append([name,fmt(m["hold"][key]),fmt(m["guard"][key])])
@@ -155,5 +168,7 @@ def review_pdf(report,charts=None):
             ledger.append([e["signal_at"]+"\n"+(labels.t("No order","주문 없음") if e["kind"]=="wait" else e["at"]),labels.kind(e)+f"\n{e['btc_weight']:.1f}%",labels.money(e["trade_value"])+"\n"+labels.money(e["fee"]),labels.money(e["cash_after"])])
         story.append(table(ledger,[width*.24,width*.23,width*.30,width*.23]))
     story.extend([PageBreak(),p(labels.t("Method & scope","계산 기준과 반영 범위"),"title"),p(labels.t("Both accounts start with 100% Bitcoin. A 0.05% fee per side applies. Decisions use completed daily candles and trades execute at the next daily open. Historical FX movements, cash interest and slippage are excluded.","두 계좌는 비트코인 100%로 시작하며 편도 수수료 0.05%를 반영해요. 확정된 일봉으로 판단하고 다음 일봉 시가에 체결해요. 과거 환율 변동·현금 이자·슬리피지는 미반영해요.")),p(labels.t(f"SGD display uses the fixed ECB cross-rate dated {REFERENCE_DATE}: S$1 = KRW {KRW_PER_SGD:.2f}.",f"표시 환산율은 {REFERENCE_DATE} ECB 기준으로 고정하며 S$1 = {KRW_PER_SGD:.2f}원이에요.")),p(labels.t("This is a simulation, not a forecast. The company brochure describes a different portfolio and is attached separately.","과거 모의 결과로 미래 성과를 예측하지 않아요. 별도 회사 소개 리플렛의 포트폴리오와 이 비트코인 단독 비교의 계산 대상은 달라요."))])
+    if labels.bear:
+        story.extend([p(labels.t("Bear-period normalization and selection","하락장 정규화와 선정 기준"),"head"),p(labels.t("The 100% Bitcoin start described above belongs to preparation. At each selected bear-market start, existing portfolios are independently rebased to equal capital with no new trade. Earlier gains and fees are not charged again. Bear-period fees cover only trades after that starting close. The largest peak-to-trough closing-price decline in each original cycle was selected retrospectively, not predicted. The unchanged-mix benchmark keeps the same initial Bitcoin and cash without further trading.","위 BTC 100% 출발은 사전 운용 단계입니다. 각 하락 시작 종가에서 기존 포트폴리오를 새로운 매매 없이 동일 금액으로 독립 환산합니다. 이전 수익을 합산하거나 과거 수수료를 다시 부과하지 않습니다. 하락장 수수료에는 시작 종가 이후 매매만 포함합니다. 각 원래 사이클에서 가장 큰 종가 고점·저점 하락 구간을 사후 선정했으며 날짜를 예측한 결과가 아닙니다. 비중 고정 계좌는 같은 시작 BTC·현금을 추가 매매 없이 유지합니다."))])
     SimpleDocTemplate(output,pagesize=A4,rightMargin=44,leftMargin=44,topMargin=58,bottomMargin=46,title=labels.t("ERU AI Bitcoin results and review","ERU AI 비트코인 결과와 복기"),author="ERUTY").build(story,onFirstPage=decorate,onLaterPages=decorate)
     return output.getvalue()
