@@ -1,6 +1,7 @@
 """대표 하락장 정규화·장부·미래 공개 경계 회귀 검증."""
 import copy
 import json
+from datetime import date
 from dataclasses import replace
 from decimal import Decimal as D
 
@@ -81,6 +82,26 @@ def test_future_market_changes_do_not_affect_visible_preparation(engine):
     changed=[replace(c,opened=c.opened*3,high=c.high*3,low=c.low*3,close=c.close*3) if c.day>=cutoff else c for c in engine.base.candles]
     other=BitcoinBearEngine(BitcoinEngine(changed))
     assert engine.public(state(4,'running'))==other.public(state(4,'running'))
+
+
+@pytest.mark.parametrize('phase',['preparation','bear'])
+@pytest.mark.parametrize('progress',[0,25,100])
+def test_period_series_use_actual_last_known_daily_closes(engine,phase,progress):
+    source=engine.runs[0][phase]['history']
+    at=int(progress/100*(len(source)-1));known=source[:at+1]
+    public=engine.public_phase(0,phase,D('100000000'),progress)
+    keys={'week':lambda day:date.fromisoformat(day).isocalendar()[:2],
+          'month':lambda day:day[:7],'year':lambda day:day[:4]}
+    for unit,key in keys.items():
+        ends={}
+        for j,row in enumerate(known):ends[key(row['date'])]=j
+        expected=sorted({0,at,*ends.values()})
+        series=public['period_history'][unit]
+        assert len(series)==len(expected)
+        for point,j in zip(series,expected):
+            assert point['date']==known[j]['date']<=public['date']
+            assert point['hold']==float((known[j]['hold']*100000000).quantize(D('.01')))
+            assert point['guard']==float((known[j]['guard']*100000000).quantize(D('.01')))
 
 
 def test_live_activity_keeps_all_known_responses_and_preparation_history(engine):

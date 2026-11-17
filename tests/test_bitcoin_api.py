@@ -98,6 +98,53 @@ def test_next_scene_reveals_the_selected_event_at_daily_boundary(btc_app):
     assert result.json()['status']=='paused'
 
 
+def test_seek_backward_forward_and_resume_preserves_server_clock_and_visible_boundary(btc_app):
+    c,wall,_=btc_app;sid=start(c);url='/api/bitcoin/sessions/'+sid
+    for position in (150,15,230,0):
+        r=c.post(url+'/playback',json={'action':'seek','position':position})
+        assert r.status_code==200,r.text
+        g=r.json();assert g['elapsed']==position and g['status']=='paused'
+        for cycle in g['cycles']:
+            if 'date' not in cycle:continue
+            assert all(e['at']<=cycle['date'] for e in cycle['response_log'])
+            for series in cycle.get('period_history',{}).values():
+                assert all(p['date']<=cycle['date'] for p in series)
+    wall[0]+=10
+    assert c.get(url).json()['elapsed']==0
+    c.post(url+'/playback',json={'action':'resume'});wall[0]+=1
+    assert c.get(url).json()['elapsed']==4
+
+
+@pytest.mark.parametrize('body',[{'action':'seek'},{'action':'seek','position':-1},
+    {'action':'seek','position':301},{'action':'pause','position':1},{'action':'seek','position':'NaN'}])
+def test_seek_rejects_invalid_positions(btc_app,body):
+    c,_,_=btc_app;sid=start(c)
+    assert c.post('/api/bitcoin/sessions/'+sid+'/playback',json=body).status_code==422
+
+
+def test_completed_seek_is_read_only_and_does_not_reopen_the_saved_result(btc_app):
+    c,_,db=btc_app;sid=start(c);url='/api/bitcoin/sessions/'+sid
+    final=c.post(url+'/playback',json={'action':'seek','position':300}).json()
+    assert final['status']=='finished'
+    before=json.loads(db.execute('SELECT state FROM sessions WHERE id=?',(sid,)).fetchone()[0])
+    g=c.post(url+'/playback',json={'action':'seek','position':15}).json()
+    assert g['read_only'] and g['elapsed']==15 and g['status']=='paused'
+    assert g['cycles'][0]['phase']=='preparation' and not g['cycles'][1]['history']
+    stored=json.loads(db.execute('SELECT state FROM sessions WHERE id=?',(sid,)).fetchone()[0])
+    for key in ('elapsed','status','amount','email_receipts','report_delivery'):
+        assert stored[key]==before[key]
+    assert c.get(url).json()['cycles']==final['cycles']
+
+
+def test_foreign_seek_cannot_change_or_disclose_a_session(btc_app):
+    c,wall,db=btc_app;sid=start(c)
+    before=db.execute('SELECT state FROM sessions WHERE id=?',(sid,)).fetchone()[0]
+    wall[0]+=2
+    with TestClient(main.app) as other:
+        assert other.post('/api/bitcoin/sessions/'+sid+'/playback',json={'action':'seek','position':250}).status_code==404
+    assert db.execute('SELECT state FROM sessions WHERE id=?',(sid,)).fetchone()[0]==before
+
+
 def test_email_unconfigured_is_truthful_and_requires_consent(btc_app,monkeypatch):
     c,_,_=btc_app;sid=start(c);url='/api/bitcoin/sessions/'+sid+'/email'
     monkeypatch.delenv('RESEND_FROM_EMAIL',raising=False)
@@ -212,7 +259,7 @@ def test_start_requires_email_consent_and_never_exposes_private_registration(btc
     assert all('report_delivery' not in x for x in c.get('/api/bitcoin/records').json()['records'])
 
 
-@pytest.mark.parametrize('completion',['finish','clock','next'])
+@pytest.mark.parametrize('completion',['finish','clock','next','seek'])
 def test_registered_report_sends_automatically_once_after_completion(btc_app,monkeypatch,completion):
     c,wall,db=btc_app
     sent=[]
@@ -231,12 +278,14 @@ def test_registered_report_sends_automatically_once_after_completion(btc_app,mon
         for _ in range(130):
             result=c.post(base+'/playback',json={'action':'next'})
             if result.json()['status']=='finished':break
+    elif completion=='seek':result=c.post(base+'/playback',json={'action':'seek','position':300})
     else:result=c.post(base+'/playback',json={'action':'finish'})
     assert result.status_code==200 and result.json()['status']=='finished'
     assert result.json()['report_delivery']['status']=='accepted' and len(sent)==1
     assert c.get(base).json()['report_delivery']['status']=='accepted'
     assert c.post(base+'/playback',json={'action':'finish'}).status_code==200
     assert c.post(base+'/delivery/retry',json={}).json()['report_delivery']['status']=='accepted'
+    assert c.post(base+'/playback',json={'action':'seek','position':15}).json()['read_only']
     assert len(sent)==1
     stored=db.execute('SELECT state FROM sessions WHERE id=?',(sid,)).fetchone()[0]
     assert 'reader@example.test' not in stored and 'automatic-report' not in result.text

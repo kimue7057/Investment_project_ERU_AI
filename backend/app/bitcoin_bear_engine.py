@@ -4,6 +4,7 @@
 바꾸지 않고, 하락 시작 종가의 각 계좌 평가액을 1로 정규화한다.
 """
 from decimal import Decimal as D, localcontext
+from datetime import date
 
 from .bitcoin_engine import BitcoinEngine, maximum_drop
 
@@ -125,11 +126,22 @@ class BitcoinBearEngine:
             for key in ("hold","guard"):
                 _,peak,trough=maximum_drop(rows,key)
                 picks.update(j for j,row in enumerate(rows) if row["date"] in (peak,trough))
-            result["history"]=[{"date":rows[j]["date"],"position":round(j/count*100,6),
+            def point(j):return {"date":rows[j]["date"],"position":round(j/count*100,6),
                 "hold":float((rows[j]["hold"]*amount).quantize(D('.01'))),
                 "guard":float((rows[j]["guard"]*amount).quantize(D('.01'))),
                 "cash":float((rows[j]["cash"]*amount).quantize(D('.01'))),
-                "btc_weight":float(rows[j]["exposure"]*100)} for j in sorted(picks)]
+                "btc_weight":float(rows[j]["exposure"]*100)}
+            result["history"]=[point(j) for j in sorted(picks)]
+            # 확정된 일별 장부에서 각 달력 기간의 마지막 공개 종가를 선택한다.
+            # 진행 중인 주·월·년도 현재 공개일까지의 마지막 확정 일봉만 사용한다.
+            grouped={unit:{} for unit in ("week","month","year")}
+            for j,row in enumerate(rows):
+                day=row["date"]
+                grouped["week"][date.fromisoformat(day).isocalendar()[:2]]=j
+                grouped["month"][day[:7]]=j
+                grouped["year"][day[:4]]=j
+            result["period_history"]={unit:[point(j) for j in sorted({0,at,*groups.values()})]
+                                      for unit,groups in grouped.items()}
         if finished:
             result["all_events"]=[]
             for event in run["events"]:
