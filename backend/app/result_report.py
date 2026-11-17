@@ -68,14 +68,14 @@ def _axis(value,labels):
     return f"{n/1e8:.1f}억" if n>=1e8 else f"{n/1e4:.0f}만" if n>=1e4 else f"{n:.0f}원"
 
 
-def chart_png(cycle,locale="ko"):
+def chart_png(cycle,locale="ko",*,screen=False,reference=None):
     history=cycle.get("history",[])
     if not history:raise ValueError("A completed asset history is required")
     labels=Labels(locale);width,height=1440,650;left,right,top,bottom=220,50,65,140
     w=width-left-right;h=height-top-bottom
     image=Image.new("RGB",(width,height),BG);draw=ImageDraw.Draw(image)
     font=ImageFont.truetype(str(FONT),38);small=ImageFont.truetype(str(FONT),32)
-    maximum=max(max(p["hold"],p["guard"]) for p in history)*1.12
+    maximum=max(max(max(p["hold"],p["guard"]) for p in history),reference or 0)*1.12
     def x(position):return left+w*position/100
     def y(value):return top+h-value/maximum*h
     for fraction in (0,.5,1):
@@ -83,11 +83,15 @@ def chart_png(cycle,locale="ko"):
         for xx in range(left,width-right,16):draw.line((xx,yy,min(xx+7,width-right),yy),fill="#263348",width=2)
         text=_axis(maximum*(1-fraction),labels);box=draw.textbbox((0,0),text,font=font)
         draw.text((left-22-(box[2]-box[0]),yy-22),text,font=font,fill=MUTED)
-    for key,color in (("hold",RED),("guard",GREEN)):
+    red,green=("#ff8476","#76aaff") if screen else (RED,GREEN)
+    if screen and reference:
+        yy=y(reference)
+        for xx in range(left,width-right,20):draw.line((xx,yy,min(xx+12,width-right),yy),fill=GOLD,width=2)
+    for key,color in (("hold",red),("guard",green)):
         points=[(x(p["position"]),y(p[key])) for p in history]
         if len(points)>1:draw.line(points,fill=color,width=5,joint="curve")
     placed=[]
-    for number,event in selected_scenes(cycle):
+    for number,event in ([] if screen else selected_scenes(cycle)):
         ax,ay=x(event["position"]),y(event["guard_value"]);cx,cy=ax,ay
         for offset in (0,-72,72,-144,144):
             candidate=max(top+34,min(top+h-34,ay+offset))
@@ -99,8 +103,8 @@ def chart_png(cycle,locale="ko"):
     draw.text((left,top+h+24),cycle["start"],font=small,fill=MUTED)
     end=cycle["end"];box=draw.textbbox((0,0),end,font=small)
     draw.text((width-right-(box[2]-box[0]),top+h+24),end,font=small,fill=MUTED)
-    draw.line((left,height-40,left+40,height-40),fill=RED,width=5);draw.text((left+54,height-58),labels.t("Buy & hold","단순 보유"),font=font,fill=TEXT)
-    draw.line((left+390,height-40,left+430,height-40),fill=GREEN,width=5);draw.text((left+444,height-58),labels.t("Risk Guard","리스크 가드"),font=font,fill=TEXT)
+    draw.line((left,height-40,left+40,height-40),fill=red,width=5);draw.text((left+54,height-58),labels.t("Buy & hold","단순 보유"),font=font,fill=TEXT)
+    draw.line((left+390,height-40,left+430,height-40),fill=green,width=5);draw.text((left+444,height-58),labels.t("Risk Guard","리스크 가드"),font=font,fill=TEXT)
     output=io.BytesIO();image.save(output,format="PNG",optimize=True);return output.getvalue()
 
 

@@ -35,6 +35,7 @@ describe('완료 결과형 화면',()=>{
   expect(html.indexOf('id="report-chart"')).toBeLessThan(html.indexOf('id="period-metrics"'));
   expect(summaryRows(c,1000).find(row=>row[0]==='리스크 가드 총 발동 횟수')).toEqual(['리스크 가드 총 발동 횟수','—','1회']);
   expect(html).not.toContain('매매 수수료');expect(html).not.toContain('매도 / 재매수 / 보류');expect(html).not.toContain('decision-number');
+  expect(html).not.toContain('activation-key');expect(html).toContain('report-chart-panel');
   expect(html).toContain('data-action="next-stage"');expect(html).not.toContain('id="recovery-metrics"');
   expect(html).not.toContain('data-action="unit"');expect(html).not.toContain('class="report-totals"');
  });

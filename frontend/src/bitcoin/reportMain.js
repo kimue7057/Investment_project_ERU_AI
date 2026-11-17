@@ -9,10 +9,10 @@ import {emailView,reportView,decisions,escape} from './reportViews';
 const requestedLanguage=new URLSearchParams(location.search).get('lang');if(['en','ko'].includes(requestedLanguage))setLanguage(requestedLanguage);
 const app=document.getElementById('app');
 const state={config:null,contact:null,report:null,cycle:0,active:-1,entryConfirmed:false,stage:location.hash==='#recovery'?'recovery':'bear',emailDraft:'',consent:false,busy:false,editing:false,error:''};
-let controller=null,scrollFrame=0;
+let controller=null;
 function current(){return state.report?.cycles[state.cycle];}
 function source(){const c=current();return c?reportChartData(c,state.stage):null;}
-function clearChart(){controller?.dispose();controller=null;cancelAnimationFrame(scrollFrame);scrollFrame=0;}
+function clearChart(){controller?.dispose();controller=null;}
 async function api(path,body){
  const r=await fetch('/api/bitcoin'+path,{credentials:'same-origin',method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
  const data=await r.json();if(!r.ok)throw new Error(typeof data.detail==='string'?data.detail:t('Please try again.','다시 시도해 주세요.'));return data;
@@ -35,11 +35,11 @@ function updateReadout(point){
 function chartUpdate(){
  const d=source(),host=document.getElementById('report-chart');if(!d||!host)return;
  const event=state.stage==='bear'?decisions(current())[state.active]:null,selected=event?d.events.findIndex(e=>e.id===event.id):-1;
- if(controller)controller.update(d,{key:state.report.id+'|'+state.cycle+'|'+state.stage,chartUnit:'month',selectedId:event?.id,numbered:'dots',pinnedPoint:event?{position:event.position,guard:event.guard_value}:null,startValue:state.report.amount});
- else host.innerHTML=renderAssetChart({...d,chart_unit:'month'},{width:host.clientWidth||350,height:320,markers:state.stage==='bear',allMarkers:true,markerLabels:'none',selected,focusIndex:event?d.history.findIndex(p=>p.date===event.at):null});
+ if(controller)controller.update(d,{key:state.report.id+'|'+state.cycle+'|'+state.stage,chartUnit:'month',selectedId:event?.id,numbered:false,pinnedPoint:event?{position:event.position,guard:event.guard_value}:null,startValue:state.report.amount});
+ else host.innerHTML=renderAssetChart({...d,chart_unit:'month'},{width:host.clientWidth||350,height:320,markers:false,allMarkers:true,markerLabels:'none',selected,focusIndex:event?d.history.findIndex(p=>p.date===event.at):null});
  updateReadout(null);
 }
-function cardBoundary(){const box=app.getBoundingClientRect();return innerWidth<850?box.top+(document.querySelector('.report-chart-pin')?.clientHeight||0)+12:box.top+24;}
+function cardBoundary(){return app.getBoundingClientRect().top+24;}
 function activate(index,scroll=false){
  const list=decisions(current());if(index<0||index>=list.length)return;
  if(scroll){const review=document.querySelector('.report-review');if(review)review.open=true;}
@@ -48,21 +48,15 @@ function activate(index,scroll=false){
  chartUpdate();
  if(scroll){const card=document.getElementById('decision-'+index);app.scrollBy({top:card.getBoundingClientRect().top-cardBoundary(),behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'instant':'smooth'});}
 }
-function syncScroll(){
- scrollFrame=0;if(!state.report||state.editing||!document.getElementById('report-chart'))return;
- const boundary=cardBoundary(),cards=[...document.querySelectorAll('[data-decision]')];
- const card=cards.find(el=>{const r=el.getBoundingClientRect();return r.top<=boundary&&r.bottom>boundary;});
- if(card&&Number(card.dataset.decision)!==state.active)activate(Number(card.dataset.decision));
-}
 function showReport(){
  if(!state.report)return;clearChart();header();state.editing=false;state.error='';history.replaceState(null,'',state.stage==='recovery'?'#recovery':'#report');
- const d=source(),fallback=renderAssetChart({...d,chart_unit:'month'},{width:Math.min(1100,Math.max(288,app.clientWidth-32)),height:320,markers:state.stage==='bear',allMarkers:true,markerLabels:'none',selected:state.active});
+ const d=source(),fallback=renderAssetChart({...d,chart_unit:'month'},{width:Math.min(1100,Math.max(288,app.clientWidth-32)),height:320,markers:false,allMarkers:true,markerLabels:'none',selected:state.active});
  app.innerHTML=reportView(state,fallback);app.scrollTop=0;
  const host=document.getElementById('report-chart');
  try{controller=createFinancialChart(host,{palette:{hold:'#ff8476',guard:'#76aaff',baseline:'#d9bc83'},onInspect:updateReadout,onRecord:record=>activate(decisions(current()).findIndex(e=>e.id===record.id),true)});chartUpdate();}
  catch{controller?.dispose();controller=null;host.innerHTML=fallback;}
  if(state.stage==='bear'&&state.active>=0)activate(state.active);
- app.style.scrollPaddingTop=innerWidth<850?document.querySelector('.report-chart-pin').clientHeight+12+'px':'24px';
+ app.style.scrollPaddingTop='24px';
 }
 async function loadReport(){
  if(!state.entryConfirmed){showEmail();return;}
@@ -97,9 +91,8 @@ document.addEventListener('click',async e=>{
  else if(action==='jump'){const target=document.getElementById(button.dataset.target);if(target)app.scrollBy({top:target.getBoundingClientRect().top-app.getBoundingClientRect().top-18,behavior:'smooth'});}
  else if(action==='retry'){state.error='';if(state.contact?.registered)await loadReport();else await boot();}
 });
-app.addEventListener('scroll',()=>{if(!scrollFrame)scrollFrame=requestAnimationFrame(syncScroll);},{passive:true});
 document.addEventListener('keydown',e=>{if(e.target.id==='report-chart'&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();activate(Math.max(0,state.active+(e.key==='ArrowLeft'?-1:1)));}});
-window.addEventListener('resize',()=>{controller?.resize();const pin=document.querySelector('.report-chart-pin');if(pin)app.style.scrollPaddingTop=innerWidth<850?pin.clientHeight+12+'px':'24px';});
+window.addEventListener('resize',()=>controller?.resize());
 
 function splash(){
  const root=document.getElementById('splash'),reduced=matchMedia('(prefers-reduced-motion:reduce)').matches;root.hidden=false;root.innerHTML=`<div class="report-splash-mark"><img src="/assets/riskguard-logo.webp" alt="Risk Guard"><b>RISK GUARD</b></div>${reduced?'':'<video autoplay muted playsinline aria-hidden="true"><source src="/assets/riskguard-intro.mp4" type="video/mp4"></video>'}<button id="skip-intro">${t('Skip','건너뛰기')} ↗</button>`;

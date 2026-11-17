@@ -71,7 +71,11 @@ def test_fixed_report_uses_existing_automatic_mail_once(btc_app,monkeypatch):
     sent=[]
     def handler(req):
         payload=json.loads(req.content)
-        assert payload['to']==['reader@example.test'] and len(payload['attachments'])==5
+        assert payload['to']==['reader@example.test'] and len(payload['attachments'])==7
+        assert {a['filename'] for a in payload['attachments'] if 'content_id' not in a}=={'ERUTY_Company_Introduction.pdf'}
+        assert len([a for a in payload['attachments'] if 'content_id' in a])==6
+        assert '상승장' in payload['html'] and '상세 복기' not in payload['html']
+        assert '/screen-results-1/' in req.headers['Idempotency-Key']
         sent.append(payload)
         return httpx.Response(200,json={'id':'fixed-report-message'})
     monkeypatch.setattr(main.bitcoin_service.mailer,'client',httpx.Client(transport=httpx.MockTransport(handler)))

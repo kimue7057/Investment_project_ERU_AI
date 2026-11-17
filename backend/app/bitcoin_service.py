@@ -200,7 +200,7 @@ class BitcoinService:
                 email=body.email
                 consented_at=self.clock()
             sid=str(uuid.uuid5(uuid.NAMESPACE_URL,"eru/bitcoin/fixed/"+owner+"/"+body.locale+"/"+
-                hashlib.sha256(email.encode()).hexdigest()+"/"+str(body.amount)+"/"+MODEL_VERSION+"/"+self.engine.fingerprint)) if completed else str(uuid.uuid4())
+                hashlib.sha256(email.encode()).hexdigest()+"/"+str(body.amount)+"/"+MODEL_VERSION+"/"+self.engine.fingerprint+"/"+report_version({'report_mode':'fixed_result'}))) if completed else str(uuid.uuid4())
             if completed:
                 existing=self.read(sid)
                 if existing:

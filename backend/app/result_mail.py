@@ -12,12 +12,14 @@ from fastapi import HTTPException
 from reportlab.platypus.doctemplate import LayoutError
 from .display_currency import sgd_money, KRW_PER_SGD, REFERENCE_DATE
 from .result_report import Labels, selected_scenes, chart_png, review_pdf, FONT
+from .screen_result_mail import SCREEN_REPORT_VERSION, screen_report_content, screen_charts
 
 COMPANY_PDF = Path(__file__).resolve().parents[2]/"data/company/eruty-company-introduction.pdf"
 REPORT_VERSION="review-2"
 BEAR_REPORT_VERSION="bear-review-3"
 
 def report_version(report):
+    if report.get('report_mode')=='fixed_result':return SCREEN_REPORT_VERSION
     return BEAR_REPORT_VERSION if report.get("model_version")=="btc-bear-2" else REPORT_VERSION
 
 
@@ -26,6 +28,7 @@ def money(value):
 
 
 def report_content(report):
+    if report.get('report_mode')=='fixed_result':return screen_report_content(report)
     labels=Labels(report.get("locale","ko"),report.get("model_version")=="btc-bear-2");t=labels.t;fmt=labels.money
     hold=t("Buy & hold","단순 보유");guard=t("Risk Guard","리스크 가드")
     plain=[t("ERU AI Bitcoin results & response review","ERU AI 비트코인 결과와 대응 복기"),t("Starting capital: ","시작 투자금: ")+fmt(report["amount"]),""]
@@ -98,17 +101,18 @@ class ResultMailer:
         if report.get("status")!="finished" or not all(c.get("completed") for c in report["cycles"]):
             raise HTTPException(400,"비교를 마친 후 결과 메일을 받을 수 있어요.")
         try:
-            charts={i:chart_png(c,report.get("locale","ko")) for i,c in enumerate(report["cycles"])}
-            full_review=review_pdf(report,charts)
+            screen=report.get('report_mode')=='fixed_result'
+            charts=screen_charts(report) if screen else {i:chart_png(c,report.get("locale","ko")) for i,c in enumerate(report["cycles"])}
+            full_review=None if screen else review_pdf(report,charts)
             body,text=report_content(report)
         except (OSError,ValueError,KeyError,LayoutError):
             raise HTTPException(503,"상세 보고서를 준비하지 못했어요. 잠시 후 다시 시도해 주세요.") from None
-        attachments=[{"filename":"ERUTY_Company_Introduction.pdf","content":base64.b64encode(COMPANY_PDF.read_bytes()).decode()},
-            {"filename":"ERU_RiskGuard_Results_Review.pdf","content":base64.b64encode(full_review).decode()}]
-        attachments.extend({"filename":f"riskguard-cycle-{i+1}.png","content_type":"image/png","content_id":f"riskguard-cycle-{i+1}","content":base64.b64encode(png).decode()} for i,png in charts.items())
+        attachments=[{"filename":"ERUTY_Company_Introduction.pdf","content":base64.b64encode(COMPANY_PDF.read_bytes()).decode()}]
+        if full_review is not None:attachments.append({"filename":"ERU_RiskGuard_Results_Review.pdf","content":base64.b64encode(full_review).decode()})
+        attachments.extend({"filename":f"{key if screen else 'riskguard-cycle-'+str(key+1)}.png","content_type":"image/png","content_id":key if screen else f"riskguard-cycle-{key+1}","content":base64.b64encode(png).decode()} for key,png in charts.items())
         identity=hashlib.sha256(recipient.encode()).hexdigest()
         payload={"from":os.environ["RESEND_FROM_EMAIL"],"to":[recipient],
-            "subject":"[ERU AI] Your Bitcoin comparison & full review" if report.get("locale")=="en" else "[ERU AI] 비트코인 자산 변화와 대응 복기","html":body,"text":text,
+            "subject":("[ERU AI] Your Bitcoin drawdown & recovery results" if report.get('locale')=='en' else "[ERU AI] 비트코인 하락장·상승장 결과") if screen else ("[ERU AI] Your Bitcoin comparison & full review" if report.get("locale")=="en" else "[ERU AI] 비트코인 자산 변화와 대응 복기"),"html":body,"text":text,
             "attachments":attachments}
         try:
             response=self.client.post("https://api.resend.com/emails",json=payload,headers={
