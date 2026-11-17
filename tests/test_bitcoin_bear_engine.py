@@ -54,6 +54,7 @@ def test_each_phase_reveals_only_known_rows_and_no_future_baseline(engine,elapse
     public=engine.public(state(elapsed,'running'))
     active=public['current_cycle'];c=public['cycles'][active]
     assert all(r['date']<=c['date'] for r in c['history'])
+    assert all(0<=r['btc_weight']<=100 and 0<=r['cash']<=r['guard']+.01 for r in c['history'])
     assert all(e['at']<=c['date'] for e in c['events'])
     if c['phase']=='preparation':
         assert 'preparation' not in c and 'frozen_allocation' not in c['metrics']

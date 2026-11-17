@@ -119,7 +119,9 @@ class BitcoinBearEngine:
                 picks.update(j for j,row in enumerate(rows) if row["date"] in (peak,trough))
             result["history"]=[{"date":rows[j]["date"],"position":round(j/count*100,6),
                 "hold":float((rows[j]["hold"]*amount).quantize(D('.01'))),
-                "guard":float((rows[j]["guard"]*amount).quantize(D('.01')))} for j in sorted(picks)]
+                "guard":float((rows[j]["guard"]*amount).quantize(D('.01'))),
+                "cash":float((rows[j]["cash"]*amount).quantize(D('.01'))),
+                "btc_weight":float(rows[j]["exposure"]*100)} for j in sorted(picks)]
         if finished:
             result["all_events"]=[]
             for event in run["events"]:
