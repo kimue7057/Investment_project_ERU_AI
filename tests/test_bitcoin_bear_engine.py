@@ -33,6 +33,70 @@ def test_representative_periods_and_returns_match_verified_analysis(engine):
         assert c['full_cycle_context']['hold_value']>c['full_cycle_context']['guard_value']
 
 
+def test_completed_summary_reconciles_drawdown_pairs_and_all_decision_counts(engine):
+    from backend.app.bitcoin_bear_engine import maximum_drop
+    report=engine.public(state())
+    for i,c in enumerate(report['cycles']):
+        rows=engine.runs[i]['bear']['history']
+        for key in ('hold','guard'):
+            dd,peak,trough=maximum_drop(rows,key)
+            summary=c['summary'][key]
+            assert (summary['peak_date'],summary['trough_date'])==(peak,trough)
+            assert summary['peak_value']==float((next(r[key] for r in rows if r['date']==peak)*D('100000000')).quantize(D('.01')))
+            assert summary['trough_value']==float((next(r[key] for r in rows if r['date']==trough)*D('100000000')).quantize(D('.01')))
+            assert summary['max_drawdown_pct']==pytest.approx(float(dd*100))
+            assert summary['trough_value']*summary['recovery_multiple']==pytest.approx(summary['peak_value'],abs=.05)
+            assert summary['end_value']==c['metrics'][key]['value']
+        counts=c['summary']['counts']
+        assert counts['decisions']==len(c['all_events'])
+        for kind in ('sell','buy','wait'):
+            assert counts[kind]==sum(e['kind']==kind for e in c['all_events'])
+        assert counts['trades']==counts['sell']+counts['buy']
+
+
+def test_recovery_uses_same_market_trough_and_verified_next_peak_without_new_trades(engine):
+    from decimal import localcontext
+    before=copy.deepcopy(engine.runs)
+    report=engine.public(state())
+    prices={c.day:c.close for c in engine.base.candles}
+    assert engine.base.candles[-1].day=='2026-05-31'
+    for i,c in enumerate(report['cycles']):
+        r=c['recovery']
+        end=SCENARIOS[i+1][3] if i<2 else engine.base.candles[-1].day
+        assert (r['start'],r['end'])==(c['end'],end)
+        assert r['basis']==('next_cycle_peak' if i<2 else 'last_confirmed_close')
+        with localcontext() as ctx:
+            ctx.prec=34
+            multiple=prices[end]/prices[c['end']]
+            assert r['market_return_pct']==float((multiple-1)*100)
+            for key in ('hold','guard'):
+                assert r[key]['starting_value']==c['metrics'][key]['value']
+                start=D(str(r[key]['starting_value']))
+                assert r[key]['end_value']==float((start*multiple).quantize(D('.01')))
+                assert r[key]['profit']==pytest.approx(r[key]['end_value']-r[key]['starting_value'],abs=.0001)
+            candles=[candle for candle in engine.base.candles if r['start']<=candle.day<=r['end']]
+            assert len(r['history'])==len(candles)
+            assert r['history'][0]['position']==0 and r['history'][-1]['position']==100
+            for point,candle in zip(r['history'],candles):
+                assert set(point)=={'date','position','hold','guard'}
+                assert point['date']==candle.day
+                for key in ('hold','guard'):
+                    expected=(D(str(r[key]['starting_value']))*candle.close/prices[r['start']]).quantize(D('.01'))
+                    assert point[key]==float(expected)
+            for key in ('hold','guard'):
+                assert r['history'][0][key]==r[key]['starting_value']
+                assert r['history'][-1][key]==r[key]['end_value']
+        assert r['ending_gap']==pytest.approx(r['guard']['end_value']-r['hold']['end_value'],abs=.0001)
+        assert r['gap_growth']==pytest.approx(r['ending_gap']-r['starting_gap'],abs=.0001)
+    assert engine.runs==before
+
+
+def test_unfinished_game_does_not_publish_completed_summary_or_recovery(engine):
+    for elapsed in (0,50,100,250,299):
+        for cycle in engine.public(state(elapsed,'running'))['cycles']:
+            assert 'summary' not in cycle and 'recovery' not in cycle
+
+
 def test_existing_ledger_fills_are_preserved_and_scaled_without_new_trades(engine):
     for i,run in enumerate(engine.runs):
         baseline=run['baseline'];bear=run['bear'];original=engine.base.runs[i]

@@ -9,6 +9,9 @@ export function createDashboardViews({state,chart,tabs,percent,signed,escape,cyc
  const scene=()=>cycleData()?.events[state.event];
  const title=(text,action,label)=>`<div class="workspace-heading"><h1>${text}</h1><button class="quiet-button" data-action="${action}">${label}</button></div>`;
  function selectedPoint(d,review=false){
+  if(state.inspectPoint)return state.inspectPoint;
+  const record=state.chartRecord?.id?responseRecords(d).find(e=>e.id===state.chartRecord.id):null;
+  if(record)return {date:record.at,hold:record.hold_value,guard:record.guard_value};
   if(review&&scene())return {date:scene().at,hold:scene().hold_value,guard:scene().guard_value,btc_weight:scene().btc_weight};
   const rows=chartRows(d);
   return Number.isInteger(state.inspectIndex)?rows[Math.min(rows.length-1,Math.max(0,state.inspectIndex))]:null;
@@ -17,28 +20,37 @@ export function createDashboardViews({state,chart,tabs,percent,signed,escape,cyc
   const point=selectedPoint(d,review),m=d.metrics;
   const h=point?.hold??m.hold.value,g=point?.guard??m.guard.value;
   const ret=v=>(v/state.run.amount-1)*100;
-  return `<div class="data-readout"><div class="account-stat"><span><i class="series-dot hold"></i>${t('Buy & hold','단순 보유')}</span><strong>${money(h)}</strong><small class="${ret(h)<0?'negative':'positive'}">${percent(ret(h))}</small></div><div class="account-stat"><span><i class="series-dot guard"></i>Risk Guard</span><strong>${money(g)}</strong><small class="${ret(g)<0?'negative':'positive'}">${percent(ret(g))}</small></div></div>`;
+  return `<div class="data-readout"><div class="account-stat"><span><i class="series-dot hold"></i>${t('Buy & hold','단순 보유')}</span><strong>${money(h)}</strong><small class="${ret(h)<0?'negative':'positive'}">${percent(ret(h))}</small></div><div class="account-stat"><span><i class="series-dot guard"></i>Risk Guard</span><strong>${money(g)}</strong><small class="${ret(g)<0?'negative':'positive'}">${percent(ret(g))}</small></div></div><div class="chart-gap"><span>${point?t('Difference on this date','선택일 잔액 차이'):t('Balance difference','현재 잔액 차이')}</span><b class="${g-h>=0?'positive':'negative'}">${signed? signed(g-h):money(g-h)}</b></div>`;
  }
  function allocation(d,review=false){
-  const selected=selectedPoint(d,review),row=selected?(review?d.history?.find(p=>p.date===selected.date):selected):d.history?.at(-1);
+  const selected=selectedPoint(d,review),row=selected?(d.history?.find(p=>p.date===selected.date)||selected):d.history?.at(-1);
   if(!Number.isFinite(row?.btc_weight))return '';
   return `<div class="guard-allocation"><span>Risk Guard ${t('mix','보유 비중')}</span><b>BTC ${row.btc_weight.toFixed(1)}%</b><b>${t('Cash','현금')} ${(100-row.btc_weight).toFixed(1)}%</b></div>`;
  }
  function plotLegend(){return `<div class="plot-legend"><span><i class="series-dot hold"></i>${t('Buy & hold','단순 보유')}</span><span><i class="series-dot guard"></i>Risk Guard</span><small>${t('Assets','평가액')}</small></div>`;}
  function dateLine(d,review=false){
   const point=selectedPoint(d,review),date=point?.date||d.date;
-  return `<div class="chart-dateline"><time>${date}</time><span>${review?t('Selected response','선택한 대응'):point?t('Selected daily close','선택일 종가'):state.run.status==='running'?t('Playing','자동 재생 중'):t('Daily close','일봉 종가 기준')}</span></div>`;
+  return `<div class="chart-dateline"><time>${date}</time><span>${review&&!state.inspectPoint?t('Selected response','선택한 대응'):point?t('Selected daily close','선택일 종가'):state.run.status==='running'?t('Live account values','현재 자산'):t('Daily close','일봉 종가 기준')}</span><button class="chart-current" data-action="chart-current" ${!point?'hidden':''}>${review?t('Response','대응 시점'):t('Latest','현재값')} ↗</button></div>`;
  }
  function plot(d,{review=false,scrub=true}={}){
   const rows=chartRows(d),index=Number.isInteger(state.inspectIndex)?Math.min(rows.length-1,state.inspectIndex):rows.length-1;
-  const markers=review||state.run.status!=='finished';
+  const markers=true;
   const unit=state.chartUnit||'day',labels={day:t('Day','일'),week:t('Week','주'),month:t('Month','월'),year:t('Year','년')};
-  const toolbar=`<div class="chart-unit-bar"><span>${t('Time axis','시간축 단위')}</span><div role="group" aria-label="${t('Time axis unit','하단 시간축 단위')}">${CHART_UNITS.map(key=>`<button data-action="chart-unit" data-unit="${key}" aria-pressed="${key===unit}" class="${key===unit?'active':''}">${labels[key]}</button>`).join('')}</div></div>`;
-  return `<section class="data-chart" aria-label="${t('Asset chart and date inspection','차트와 날짜 탐색')}">
+  const toolbar=`<div class="chart-unit-bar"><div role="group" aria-label="${t('Time axis unit','하단 시간축 단위')}">${CHART_UNITS.map(key=>`<button data-action="chart-unit" data-unit="${key}" aria-pressed="${key===unit}" class="${key===unit?'active':''}">${labels[key]}</button>`).join('')}</div><button class="chart-expand" data-action="chart-expand" aria-label="${t('Expand chart','차트 크게 보기')}">⛶ <span>${t('Expand','확대')}</span></button></div>`;
+  return `<section class="data-chart financial-panel" aria-label="${t('Asset chart and date inspection','차트와 날짜 탐색')}">
    <div data-chart-readout>${dateLine(d,review)}${readout(d,{review})}${allocation(d,review)}</div>
-   <div class="chart-frame" data-responsive-chart data-cycle="${state.cycle}" data-markers="${markers}" data-mode="assets">${chart(state.cycle,{markers,mode:'assets'})}</div>${toolbar}${plotLegend()}
+   <div class="chart-frame financial-chart-frame" data-financial-chart data-responsive-chart data-cycle="${state.cycle}" data-markers="${markers}" data-mode="assets" tabindex="0" role="group" aria-label="${t('Account value chart. Hold to inspect, or use left and right arrow keys.','자산 비교 차트. 길게 누르거나 좌우 방향키로 값을 확인하세요.')}">${chart(state.cycle,{markers,mode:'assets'})}</div>${toolbar}${plotLegend()}
+   <p class="chart-touch-hint">${t('Hold to inspect · pinch to zoom · playback stays unchanged','길게 눌러 값 확인 · 두 손가락으로 확대 · 재생 시점은 그대로')}</p>
    ${scrub&&!review&&rows.length>1&&state.run.status!=='running'?`<label class="scrubber-label"><span>${t('Explore dates','날짜별 살펴보기')}</span><span>${t('Slide to inspect','좌우로 움직여 확인')}</span><input class="chart-scrubber" type="range" min="0" max="${rows.length-1}" value="${Math.max(0,index)}" step="1" data-chart-scrub aria-label="${t('Inspect asset values','날짜별 자산 확인')}"></label>`:''}
+   <div data-chart-response>${chartResponse(d,review)}</div>
+   <p class="chart-credit">TradingView Lightweight Charts™ © TradingView, Inc. · <a href="https://www.tradingview.com/" target="_blank" rel="noopener noreferrer">TradingView</a></p>
    </section>`;
+ }
+ function chartResponse(d,review=false){
+  const events=responseRecords(d),selected=state.chartRecord?.id?events.find(e=>e.id===state.chartRecord.id):null,raw=selected||(review?d.events[state.event]:events.at(-1));
+  if(!raw)return `<div class="chart-response-empty">${t('Responses will appear here as the replay advances.','대응이 발생하면 이곳에 날짜와 내역이 표시돼요.')}</div>`;
+  const e=eventText(raw);
+  return `<section class="chart-response-card"><div class="chart-response-top"><span class="response-kind ${e.kind}">${typeLabel(e.kind)}</span><time>${e.at}</time>${review?`<span class="chart-scene-count">${state.event+1}/${d.events.length}</span><button data-action="previous-review" aria-label="${t('Previous response','이전 대응')}" ${state.event===0?'disabled':''}>‹</button><button data-action="next-review" aria-label="${t('Next response','다음 대응')}" ${state.event===d.events.length-1?'disabled':''}>›</button>`:`<span>${selected?t('Selected response','선택한 대응'):t('Latest response','최근 대응')}</span>`}</div><p>${e.action}</p><div class="chart-response-numbers"><span>${t('Cash after','대응 후 현금')} <b>${money(e.cash_after)}</b></span>${e.kind!=='wait'?`<span>${t('Trade','거래금액')} <b>${money(e.trade_value)}</b></span>`:`<span>BTC <b>${e.btc_weight.toFixed(1)}%</b></span>`}</div><button class="chart-record-details" data-action="chart-record-details" data-id="${escape(e.id)}" data-phase="${e.phase||d.phase||'bear'}">${t('Signal & execution details','판단·체결 상세 내역')} ↗</button></section>`;
  }
  function phaseBar(d){
   if(!bear(d))return `<div class="compact-phase">${t('Original full-cycle record','이전 전체 사이클 기록')}</div>`;
@@ -55,7 +67,7 @@ export function createDashboardViews({state,chart,tabs,percent,signed,escape,cyc
    </section>`;
  }
  function liveContent(d,event){
-  return `${phaseBar(d)}${plot(d,{scrub:false})}`;
+  return `<div data-live-phase>${phaseBar(d)}</div>${plot(d,{scrub:false})}`;
  }
  function responseLog(root){
   const events=responseFeedRecords(root).reverse();
@@ -64,7 +76,7 @@ export function createDashboardViews({state,chart,tabs,percent,signed,escape,cyc
  }
  function simulation(){
   if(!state.run)return missing();const d=state.run.cycles[state.cycle];if(!d?.metrics)return missing();
-  return `<div class="page workspace simulation-workspace">${title(t('Market replay','시장 재생'),'finish',t('See results ↗','결과 보기 ↗'))}${tabs('sim-cycle')}<div class="dashboard-grid"><section class="visual-panel"><div id="live-content">${liveContent(d)}</div>${player()}</section><aside class="context-panel response-feed" id="response-log">${responseLog(d)}</aside></div></div>`;
+  return `<div class="page workspace simulation-workspace">${title(t('Market replay','시장 재생'),'finish',t('See results ↗','결과 보기 ↗'))}${tabs('sim-cycle')}<div class="dashboard-grid"><section class="visual-panel"><div id="live-content">${liveContent(cycleData()||d)}</div>${player()}</section><aside class="context-panel response-feed" id="response-log">${responseLog(d)}</aside></div></div>`;
  }
  function resultMetrics(d){
   const m=d.metrics;
@@ -91,7 +103,7 @@ export function createDashboardViews({state,chart,tabs,percent,signed,escape,cyc
   if(!state.run)return missing();
   if(state.run.status!=='finished')return `<div class="page workspace">${title(t('Your results','비교 결과'),'resume',t('Resume','이어서 재생'))}<section class="empty-state"><h2>${t('Your comparison is still running','아직 비교 중이에요')}</h2><p>${t('Continue playback or finish the remaining period.','재생을 이어가거나 남은 기간을 마쳐 주세요.')}</p><button class="btn dark" data-action="finish">${t('Finish & see results','마치고 결과 보기')} →</button></section></div>`;
   const d=state.run.cycles[state.cycle],delivery=state.run.report_delivery;
-  return `<div class="page workspace results-workspace">${title(t('Your results','비교 결과'),'begin',t('New comparison','새 비교'))}${tabs('result-cycle')}<div class="dashboard-grid"><section class="visual-panel"><div id="result-detail">${resultHero(d)}<div class="period-caption">${d.start} — ${d.end}</div>${plot(d)}<button class="btn dark wide inline-review" data-action="review-cycle" data-cycle="${state.cycle}">${t('Review the responses','이 구간 대응 복기')} →</button></div></section><aside class="context-panel">${context(d)}${resultMetrics(d)}<section class="period-overview"><h2>${t('All three periods','세 하락장 한눈에')}</h2>${state.run.cycles.map((c,i)=>`<button data-action="result-cycle" data-cycle="${i}" class="period-overview-row ${i===state.cycle?'selected':''}"><span>${cycleName(i)}</span><span>${percent(c.metrics.hold.return_pct)}<small>${t('hold','단순 보유')}</small></span><span>${percent(c.metrics.guard.return_pct)}<small>Guard</small></span><b>›</b></button>`).join('')}</section><details class="data-details delivery-details" data-detail-key="delivery"><summary><span>✉ ${delivery?.status==='accepted'?t('Report accepted','보고서 발송 접수'):delivery?.status==='failed'?t('Email needs attention','이메일 발송 확인'):t('Report delivery','보고서 수신 상태')}</span><span>＋</span></summary>${mailPanel()}</details><button class="method-link" data-action="method">${t('Methodology & scope','계산 기준과 반영 범위')} ↗</button><p class="scope-caption">${t('Historical periods selected retrospectively. Period returns differ from full-cycle returns and are not predictions.','사후 선정한 하락 구간의 결과로, 전체 사이클 수익과 다르며 미래 예측이 아니에요.')}</p></aside></div></div>`;
+  return `<div class="page workspace results-workspace">${title(t('Your results','비교 결과'),'begin',t('New comparison','새 비교'))}${tabs('result-cycle')}<div class="dashboard-grid"><section class="visual-panel"><div id="result-detail"><div class="period-caption">${d.start} — ${d.end}</div>${plot(d)}<button class="btn dark wide inline-review" data-action="review-cycle" data-cycle="${state.cycle}">${t('Review the responses','이 구간 대응 복기')} →</button></div></section><aside class="context-panel">${resultHero(d)}${context(d)}${resultMetrics(d)}<section class="period-overview"><h2>${t('All three periods','세 하락장 한눈에')}</h2>${state.run.cycles.map((c,i)=>`<button data-action="result-cycle" data-cycle="${i}" class="period-overview-row ${i===state.cycle?'selected':''}"><span>${cycleName(i)}</span><span>${percent(c.metrics.hold.return_pct)}<small>${t('hold','단순 보유')}</small></span><span>${percent(c.metrics.guard.return_pct)}<small>Guard</small></span><b>›</b></button>`).join('')}</section><details class="data-details delivery-details" data-detail-key="delivery"><summary><span>✉ ${delivery?.status==='accepted'?t('Report accepted','보고서 발송 접수'):delivery?.status==='failed'?t('Email needs attention','이메일 발송 확인'):t('Report delivery','보고서 수신 상태')}</span><span>＋</span></summary>${mailPanel()}</details><button class="method-link" data-action="method">${t('Methodology & scope','계산 기준과 반영 범위')} ↗</button><p class="scope-caption">${t('Historical periods selected retrospectively. Period returns differ from full-cycle returns and are not predictions.','사후 선정한 하락 구간의 결과로, 전체 사이클 수익과 다르며 미래 예측이 아니에요.')}</p></aside></div></div>`;
  }
  function sceneCard(d,e){
   const events=d.events;
@@ -101,7 +113,7 @@ export function createDashboardViews({state,chart,tabs,percent,signed,escape,cyc
   if(!state.run||state.run.status!=='finished')return missing(t('Finish the comparison to review responses','비교를 마치면 대응을 복기할 수 있어요'));
   const root=state.run.cycles[state.cycle],d=cycleData(),events=d.events,e=eventText(events[state.event]);
   if(!e)return missing(t('No response scenes in this period','이 구간에는 대응 장면이 없어요'));
-  return `<div class="page workspace review-workspace">${title(t('Response review','대응 복기'),'results',t('Results','결과'))}${tabs('review-cycle')}${root.preparation?`<div class="review-phase-tabs" role="group" aria-label="${t('Review phase','복기 구간')}">${[['preparation',t('Cash preparation','현금 확보')],['bear',t('Bear market','하락장 대응')]].map(([key,label])=>`<button data-action="review-phase" data-phase="${key}" aria-pressed="${state.reviewPhase===key}" class="${state.reviewPhase===key?'active':''}">${label}</button>`).join('')}</div>`:''}<div class="dashboard-grid review-grid"><section class="visual-panel review-visual">${plot(d,{review:true,scrub:false})}<div class="review-timeline" role="group" aria-label="${t('Response timeline','대응 장면 목록')}">${events.map((ev,i)=>`<button data-action="event" data-index="${i}" aria-pressed="${state.event===i}" class="${state.event===i?'active':''}"><span>${String(i+1).padStart(2,'0')}</span><b>${typeLabel(ev.kind)}</b><small>${ev.at.slice(2)}</small></button>`).join('')}</div><p class="scope-caption">${state.reviewPhase==='preparation'&&root.preparation?t('Original preparation mix, before the equal-value comparison.','동일 금액 비교 전, 사전 운용의 현금·BTC 비중이에요.'):t('Same starting comparison value. Earlier cash is carried forward.','같은 시작 비교 금액 기준이며 이전 현금을 이어받아요.')}</p></section><aside class="context-panel scene-panel">${sceneCard(d,e)}<button class="method-link" data-action="all-events">${t('All simulated responses','전체 모의 대응 내역')} (${d.all_events.length}) ↗</button><p class="scope-caption">${t('The chart highlights selected and representative responses. All scenes remain in the timeline. The gap includes market changes and multiple trades, not one action alone.','차트에는 선택·대표 대응만 표시하며 전체 장면은 목록에서 볼 수 있어요. 자산 차이에는 시장 변화와 여러 매매가 함께 반영돼요.')}</p></aside></div></div>`;
+  return `<div class="page workspace review-workspace">${title(t('Response review','대응 복기'),'results',t('Results','결과'))}${tabs('review-cycle')}${root.preparation?`<div class="review-phase-tabs" role="group" aria-label="${t('Review phase','복기 구간')}">${[['preparation',t('Cash preparation','현금 확보')],['bear',t('Bear market','하락장 대응')]].map(([key,label])=>`<button data-action="review-phase" data-phase="${key}" aria-pressed="${state.reviewPhase===key}" class="${state.reviewPhase===key?'active':''}">${label}</button>`).join('')}</div>`:''}<div class="dashboard-grid review-grid"><section class="visual-panel review-visual">${plot(d,{review:true,scrub:false})}<div class="review-timeline" role="group" aria-label="${t('Response timeline','대응 장면 목록')}">${events.map((ev,i)=>`<button data-action="event" data-index="${i}" aria-pressed="${state.event===i}" class="${state.event===i?'active':''}"><span>${String(i+1).padStart(2,'0')}</span><b>${typeLabel(ev.kind)}</b><small>${ev.at.slice(2)}</small></button>`).join('')}</div><p class="scope-caption">${state.reviewPhase==='preparation'&&root.preparation?t('Original preparation mix, before the equal-value comparison.','동일 금액 비교 전, 사전 운용의 현금·BTC 비중이에요.'):t('Same starting comparison value. Earlier cash is carried forward.','같은 시작 비교 금액 기준이며 이전 현금을 이어받아요.')}</p></section><aside class="context-panel scene-panel"><details class="data-details" data-detail-key="review-detail"><summary>${t('Full response details','대응 상세 기록')}<span>＋</span></summary><div data-review-detail>${sceneCard(d,e)}</div></details><button class="method-link" data-action="all-events">${t('All simulated responses','전체 모의 대응 내역')} (${d.all_events.length}) ↗</button><p class="scope-caption">${t('The chart highlights selected and representative responses. All scenes remain in the timeline. The gap includes market changes and multiple trades, not one action alone.','차트에는 선택·대표 대응만 표시하며 전체 장면은 목록에서 볼 수 있어요. 자산 차이에는 시장 변화와 여러 매매가 함께 반영돼요.')}</p></aside></div></div>`;
  }
- return {simulation,liveContent,responseLog,results,review,chartReadout:(d,review=false)=>dateLine(d,review)+readout(d,{review})+allocation(d,review)};
+ return {simulation,liveContent,responseLog,results,review,chartResponse,phaseBar,sceneCard,chartReadout:(d,review=false)=>dateLine(d,review)+readout(d,{review})+allocation(d,review)};
 }

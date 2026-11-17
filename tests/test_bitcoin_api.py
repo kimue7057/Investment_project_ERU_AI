@@ -31,6 +31,57 @@ def start(c,amount=100000000):
     return r.json()['id']
 
 
+def test_fixed_report_requires_saved_email_and_rejects_client_capital(btc_app):
+    c,_,_=btc_app
+    assert c.post('/api/bitcoin/reports',json={'locale':'ko'}).status_code==400
+    assert c.post('/api/bitcoin/reports',json={'locale':'ko','amount':1}).status_code==422
+    assert c.post('/api/bitcoin/reports',json={'locale':'zh'}).status_code==422
+
+
+@pytest.mark.parametrize('locale',['ko','en'])
+def test_fixed_report_finishes_immediately_with_fixed_capital_and_owner_cache(btc_app,monkeypatch,locale):
+    from decimal import Decimal
+    from backend.app.display_currency import KRW_PER_SGD
+    c,_,db=btc_app
+    monkeypatch.setenv('ERU_LOCAL_PREVIEW','1')
+    assert c.post('/api/bitcoin/contact',json={'email':'reader@example.test','consent':True}).status_code==200
+    r=c.post('/api/bitcoin/reports',json={'locale':locale})
+    assert r.status_code==200,r.text
+    report=r.json()
+    expected=Decimal('100000000') if locale=='ko' else (Decimal('100000')*KRW_PER_SGD).quantize(Decimal('.01'))
+    assert report['amount']==float(expected)
+    assert report['status']=='finished' and report['elapsed']==300
+    assert report['report_mode']=='fixed_result'
+    assert report['report_delivery']=={'status':'preview','recipient':'r***@example.test','locale':locale}
+    assert all(cycle['summary'] and cycle['recovery'] and cycle['all_events'] for cycle in report['cycles'])
+    assert 'reader@example.test' not in r.text and 'visitor_hash' not in r.text
+    again=c.post('/api/bitcoin/reports',json={'locale':locale})
+    assert again.json()==report
+    saved=[json.loads(row[0]) for row in db.execute('SELECT state FROM sessions')]
+    assert len([s for s in saved if s.get('report_mode')=='fixed_result'])==1
+    with TestClient(main.app) as other:
+        assert other.get('/api/bitcoin/sessions/'+report['id']).status_code==404
+
+
+def test_fixed_report_uses_existing_automatic_mail_once(btc_app,monkeypatch):
+    c,_,_=btc_app
+    monkeypatch.delenv('ERU_LOCAL_PREVIEW',raising=False)
+    monkeypatch.setenv('RESEND_API_KEY','re_test_only')
+    monkeypatch.setenv('RESEND_FROM_EMAIL','ERU AI <report@example.test>')
+    sent=[]
+    def handler(req):
+        payload=json.loads(req.content)
+        assert payload['to']==['reader@example.test'] and len(payload['attachments'])==5
+        sent.append(payload)
+        return httpx.Response(200,json={'id':'fixed-report-message'})
+    monkeypatch.setattr(main.bitcoin_service.mailer,'client',httpx.Client(transport=httpx.MockTransport(handler)))
+    c.post('/api/bitcoin/contact',json={'email':'reader@example.test','consent':True})
+    first=c.post('/api/bitcoin/reports',json={'locale':'ko'})
+    assert first.status_code==200 and first.json()['report_delivery']['status']=='accepted'
+    assert c.post('/api/bitcoin/reports',json={'locale':'ko'}).json()['id']==first.json()['id']
+    assert len(sent)==1
+
+
 def legacy_start(c):
     """기존 수신 주소 미등록 기록의 수동 발송 호환성을 검증한다."""
     sid=start(c)

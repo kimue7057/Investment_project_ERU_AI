@@ -12,17 +12,15 @@
   <link rel="manifest" href="/manifest.webmanifest"/>
   <link rel="apple-touch-icon" href="/assets/riskguard-icon-192.png"/>
   <link rel="icon" href="/assets/riskguard-logo.webp"/>
-  <title>Bitcoin Risk Guard · ERU AI</title>
+  <title>Bitcoin Risk Guard · Results</title>
 </head>
 <body>
-  <div class="app-shell">
-  <header class="site-header"><div class="header-inner"><button id="header-back" class="icon-button" data-action="back" aria-label="Back" hidden>‹</button><a href="#home" class="brand" aria-label="ERU AI Risk Guard"><img src="/assets/riskguard-logo.webp" alt=""><span>RiskGuard<small>ERU AI</small></span></a><button id="header-language" class="language-pill" data-action="settings" aria-label="Language settings">EN</button></div></header>
-  <main id="app" tabindex="-1"></main>
-  <footer class="site-footer">Historical simulation · No real trades · © ERUTY</footer>
-  <nav class="bottom-nav" id="app-navigation" aria-label="App navigation"></nav>
+  <div class="report-shell">
+  <header class="report-site-header"><button class="report-brand" data-action="top" aria-label="Risk Guard"><img src="/assets/riskguard-logo.webp" alt=""><span>RiskGuard<small>ERU AI</small></span></button><div class="report-header-actions"><button id="report-email-settings" data-action="edit-email" hidden>Email</button><button id="report-language" data-action="language">한국어</button></div></header>
+  <main id="app" class="report-root" tabindex="-1"></main>
   </div>
   <div id="splash" role="dialog" aria-modal="true" aria-label="Risk Guard intro" hidden></div><div id="modal-root"></div><div id="toast" role="status" aria-live="polite"></div>
   <noscript>Please enable JavaScript to use the simulator. / JavaScript를 켜 주세요.</noscript>
-  <script type="module" src="/src/bitcoin/main.js"></script>
+  <script type="module" src="/src/bitcoin/reportMain.js"></script>
 </body>
 </html>

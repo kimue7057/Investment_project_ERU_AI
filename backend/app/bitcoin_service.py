@@ -19,6 +19,7 @@ from .bitcoin_engine import BitcoinEngine, MODEL_VERSION as LEGACY_VERSION
 from .bitcoin_bear_engine import BitcoinBearEngine, SCENARIOS, MODEL_VERSION
 from .blob_store import StorageConflict
 from .result_mail import ResultMailer, report_version
+from .display_currency import KRW_PER_SGD
 
 COOKIE="eru_btc_visitor"
 MODE="bitcoin_v1"
@@ -57,6 +58,10 @@ class SavedContactStart(Strict):
 
 class RetryDelivery(Strict):
     pass
+
+
+class FixedReport(Strict):
+    locale: Literal["en","ko"]="en"
 
 
 class BitcoinService:
@@ -131,6 +136,7 @@ class BitcoinService:
     def public(self,state,view=None):
         result=self.engine_for(state).public(state,view)
         result.setdefault("model_version",LEGACY_VERSION)
+        if state.get("report_mode")=="fixed_result":result["report_mode"]="fixed_result"
         delivery=state.get("report_delivery")
         if delivery:
             # 수신 주소·동의 기록·발송 임대·제공자 응답은 서버에만 보관한다.
@@ -178,7 +184,7 @@ class BitcoinService:
                 except StorageConflict:continue
         raise HTTPException(409,"이메일 설정을 저장 중이에요. 다시 시도해 주세요.")
 
-    def create(self,request,body):
+    def create(self,request,body,*,completed=False):
         if self.engine is None:
             raise HTTPException(503,"검증된 비트코인 데이터를 준비하고 있어요.")
         token,owner=self.token(request,True)
@@ -193,16 +199,34 @@ class BitcoinService:
                 # 이전 배포 클라이언트의 명시적 수신 동의 요청도 유지한다.
                 email=body.email
                 consented_at=self.clock()
+            sid=str(uuid.uuid5(uuid.NAMESPACE_URL,"eru/bitcoin/fixed/"+owner+"/"+body.locale+"/"+
+                hashlib.sha256(email.encode()).hexdigest()+"/"+str(body.amount)+"/"+MODEL_VERSION+"/"+self.engine.fingerprint)) if completed else str(uuid.uuid4())
+            if completed:
+                existing=self.read(sid)
+                if existing:
+                    prior=existing[0]
+                    if prior.get("mode")!=MODE or not hmac.compare_digest(prior.get("visitor_hash",""),owner):
+                        raise HTTPException(409,"보고서 기록을 확인할 수 없어요.")
+                    self.engine_for(prior)
+                    return token,self.public(prior)
             self.quota("create",owner,3600,20)
-            now=self.clock();sid=str(uuid.uuid4())
+            now=self.clock()
             local,domain=email.split("@")
             state={"id":sid,"mode":MODE,"model_version":MODEL_VERSION,"market_sha":self.engine.fingerprint,"visitor_hash":owner,"amount":str(body.amount),"created_at":now,
-                "anchor":now,"elapsed":0.0,"speed":4,"status":"running","email_receipts":{},
+                "anchor":now,"elapsed":300.0 if completed else 0.0,"speed":4,"status":"finished" if completed else "running","email_receipts":{},
                 "report_delivery":{"email":email,"recipient":local[:1]+"***@"+domain,
                     "locale":body.locale,"consented_at":consented_at,"status":"scheduled",
                     "use_saved_contact":isinstance(body,SavedContactStart)}}
+            if completed:
+                state["report_mode"]="fixed_result"
+                if os.environ.get("ERU_LOCAL_PREVIEW")=="1":state["report_delivery"]["status"]="preview"
             self.write(sid,state,None)
         return token,self.public(state)
+
+    def fixed_report(self,request,body):
+        amount=Decimal('100000000') if body.locale=='ko' else (Decimal('100000')*KRW_PER_SGD).quantize(Decimal('.01'))
+        token,result=self.create(request,SavedContactStart(amount=amount,locale=body.locale),completed=True)
+        return token,self.change(request,result['id'])
 
     def advance(self,s):
         now=self.clock()
@@ -385,6 +409,7 @@ def make_router(provider,lock):
     @router.get("/config")
     def config():
         return {"ready":service.engine is not None,"email_ready":service.mailer.configured,"duration":300,
+            "local_preview":os.environ.get("ERU_LOCAL_PREVIEW")=="1",
             "model_version":MODEL_VERSION,
             "cycles":[{"id":cid,"name":name,"start":start,"end":end,"preparation_start":prep_start}
                 for cid,name,prep_start,start,end in SCENARIOS],
@@ -409,6 +434,11 @@ def make_router(provider,lock):
     @router.post("/sessions")
     def start(body:Start|SavedContactStart,request:Request):
         token,result=service.create(request,body)
+        return with_cookie(token,result,request)
+
+    @router.post("/reports")
+    def fixed_report(body:FixedReport,request:Request):
+        token,result=service.fixed_report(request,body)
         return with_cookie(token,result,request)
 
     @router.get("/sessions/{sid}")

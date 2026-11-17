@@ -40,6 +40,12 @@ describe('responsive financial charts',()=>{
   expect((svg.match(/class="plot-hit"/g)||[]).length).toBeLessThanOrEqual(5);
   expect(svg).toContain('r="22"');expect(svg).toContain('class="plot-cursor"');
  });
+ it('retains every fallback marker but labels only the selected response',()=>{
+  const svg=renderAssetChart(cycle,{markers:true,allMarkers:true,markerLabels:'selected',selected:7});
+  expect(svg.match(/class="plot-hit"/g)).toHaveLength(20);
+  expect(svg.match(/class="plot-event-number"/g)).toHaveLength(1);
+  expect(svg).toMatch(/class="plot-event-number"[^>]*>8<\/text>/);
+ });
  it('draws only supplied historical points and leaves the source unchanged during inspection',()=>{
   const original=JSON.stringify(cycle),partial={...cycle,history:history.slice(0,2),events:[]};
   const svg=renderAssetChart(partial,{focusIndex:1});

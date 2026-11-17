@@ -4,6 +4,7 @@
 바꾸지 않고, 하락 시작 종가의 각 계좌 평가액을 1로 정규화한다.
 """
 from decimal import Decimal as D, localcontext
+from datetime import date
 
 from .bitcoin_engine import BitcoinEngine, maximum_drop
 
@@ -136,6 +137,21 @@ class BitcoinBearEngine:
             for event in run["events"]:
                 item=self.base.public_event(event,amount,run);item["phase"]=phase
                 result["all_events"].append(item)
+            if phase=="bear":
+                summary={}
+                for key in ("hold","guard"):
+                    dd,peak,trough=maximum_drop(rows,key)
+                    peak_row=next(row for row in rows if row['date']==peak)
+                    low_row=next(row for row in rows if row['date']==trough)
+                    summary[key]={"peak_date":peak,"trough_date":trough,
+                        "peak_value":float((peak_row[key]*amount).quantize(D('.01'))),
+                        "trough_value":float((low_row[key]*amount).quantize(D('.01'))),
+                        "max_drawdown_pct":float(dd*100),"recovery_multiple":float(1/(1+dd)),
+                        "end_value":result['metrics'][key]['value']}
+                counts={kind:sum(e['kind']==kind for e in run['events']) for kind in ('sell','buy','wait')}
+                counts.update(decisions=len(run['events']),trades=counts['sell']+counts['buy'])
+                summary['counts']=counts
+                result['summary']=summary
         return result
 
     def public_cycle(self,index,amount,progress,include_history=True,finished=False):
@@ -153,6 +169,35 @@ class BitcoinBearEngine:
                 "end":self.runs[index]["context"]["end"],
                 "hold_value":float((last["hold"]*amount).quantize(D('.01'))),
                 "guard_value":float((last["guard"]*amount).quantize(D('.01')))}
+            result['recovery']=self.recovery_comparison(index,amount)
+        return result
+
+    def recovery_comparison(self,index,amount):
+        start=SCENARIOS[index][4]
+        end=SCENARIOS[index+1][3] if index+1<len(SCENARIOS) else self.base.candles[-1].day
+        prices={c.day:c.close for c in self.base.candles}
+        multiple=prices[end]/prices[start]
+        last=self.runs[index]['bear']['history'][-1]
+        result={"start":start,"end":end,"basis":"next_cycle_peak" if index+1<len(SCENARIOS) else "last_confirmed_close",
+                "market_return_pct":float((multiple-1)*100),"market_multiple":float(multiple)}
+        starts={};ends={}
+        for key in ('hold','guard'):
+            starting=(last[key]*amount).quantize(D('.01'))
+            ending=(starting*multiple).quantize(D('.01'))
+            starts[key]=starting;ends[key]=ending
+            result[key]={"starting_value":float(starting),"profit":float(ending-starting),"end_value":float(ending),
+                         "total_return_pct":float((ending/amount-1)*100)}
+        result['starting_gap']=float(starts['guard']-starts['hold'])
+        result['ending_gap']=float(ends['guard']-ends['hold'])
+        result['gap_growth']=float((ends['guard']-ends['hold'])-(starts['guard']-starts['hold']))
+        # 종료된 비교에서만 공개한다. 실제 확정 일봉 경로에 두 출발 잔액을
+        # 동일 비율로 적용하며 새로운 가드 매매나 시세를 생성하지 않는다.
+        days=(date.fromisoformat(end)-date.fromisoformat(start)).days
+        result['history']=[{
+            'date':c.day,
+            'position':round((date.fromisoformat(c.day)-date.fromisoformat(start)).days/max(1,days)*100,6),
+            **{key:float((starts[key]*c.close/prices[start]).quantize(D('.01'))) for key in ('hold','guard')}
+        } for c in self.base.candles if start<=c.day<=end]
         return result
 
     def public(self,state,view=None):

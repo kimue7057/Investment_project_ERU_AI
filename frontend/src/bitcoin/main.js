@@ -1,11 +1,13 @@
 import {FX,krwPerSgd,currencyCode,inputAmount,parseAmount,amountLimits,defaultCapital} from './currency';
 import './styles.css';
 import './dashboard.css';
+import './financial.css';
 import {renderAssetChart,chartGeometry} from './chartView';
 import {t,lang,setLanguage,setCycleMode,cycleName,money,typeLabel,eventText,errorText} from './i18n';
 import {createViews} from './views';
 import {responseRecords,responseFeedRecords} from './dashboardViews';
 import {chartRows,CHART_UNITS} from './periodView';
+import {createFinancialChart} from './financialChart';
 
 const app=document.getElementById('app');
 const LOGO='/assets/riskguard-logo.webp';
@@ -15,12 +17,13 @@ const cycles=[
   {name:'2차 사이클',period:'2021.11.08 - 2022.11.21'},
   {name:'3차 사이클',period:'2025.10.06 - 2026.02.05'},
 ];
-const state={config:null,contact:null,emailEditing:false,run:null,amountDraft:defaultCapital(lang()),amountEdited:false,reportEmailDraft:'',reportConsent:false,cycle:0,event:0,reviewPhase:'bear',chartUnit:'day',inspectIndex:null,phaseChanged:false,busy:false,records:[],error:'',booting:true};
+const state={config:null,contact:null,emailEditing:false,run:null,amountDraft:defaultCapital(lang()),amountEdited:false,reportEmailDraft:'',reportConsent:false,cycle:0,event:0,reviewPhase:'bear',chartUnit:'day',inspectIndex:null,inspectPoint:null,chartRecord:null,phaseChanged:false,busy:false,records:[],error:'',booting:true};
+const nativeCharts=new Map();let expandedChart=null;
 let pollTimer,pollPromise=null,pollFailures=0,lastRoute='',previousFocus=null,toastTimer,chartSerial=0;
 const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const signed=n=>(n>0?'+':'')+money(n);
 const percent=n=>(n>0?'+':'')+Number(n).toFixed(1)+'%';
-function phaseData(c){const d=route()==='review'&&state.reviewPhase==='preparation'&&c?.preparation?c.preparation:c;return route()==='review'&&d?{...d,events:responseRecords(d)}:d;}
+function phaseData(c){const pre=(route()==='review'&&state.reviewPhase==='preparation')||(route()==='simulation'&&state.chartRecord?.phase==='preparation');const d=pre&&c?.preparation?{...c.preparation,scenario_kind:c.scenario_kind}:c;return d?{...d,events:responseRecords(d)}:d;}
 const cycleData=()=>phaseData(state.run?.cycles[state.cycle]);
 function route(){if(!state.booting&&!state.contact?.registered)return 'email';const p=location.hash.slice(1)||'home';return ['home','email','amount','simulation','results','review','records','settings'].includes(p)?p:'home';}
 function tabs(action='cycle'){return `<div class="cycle-tabs" role="group" aria-label="${t('Market cycles','사이클 선택')}">${cycles.map((c,i)=>`<button data-action="${action}" data-cycle="${i}" class="${state.cycle===i?'active':''}" aria-pressed="${state.cycle===i}" ${state.run&&i>state.run.current_cycle?'disabled':''}>${cycleName(i)}</button>`).join('')}</div>`;}
@@ -32,10 +35,10 @@ async function api(path,body,keepalive=false){
   return data;
 }
 function remember(){if(!state.run)return;try{localStorage.setItem(LAST,state.run.id);sessionStorage.setItem('eru-btc-view-'+state.run.id,JSON.stringify({cycle:state.cycle,event:state.event,phase:state.reviewPhase}));}catch{}}
-function receive(run,{follow=false}={}){const prior=state.run?.cycles[state.cycle]?.phase;state.run=run;if(run.status==='running')state.inspectIndex=null;if(follow||state.cycle>run.current_cycle)state.cycle=run.view_cycle;state.phaseChanged=state.phaseChanged||Boolean(route()==='simulation'&&prior&&prior!==run.cycles[state.cycle]?.phase);state.event=Math.min(state.event,Math.max(0,(cycleData()?.events.length||1)-1));remember();}
+function receive(run,{follow=false}={}){const prior=state.run?.cycles[state.cycle]?.phase,oldId=state.run?.id,oldCycle=state.cycle;state.run=run;if(follow||state.cycle>run.current_cycle)state.cycle=run.view_cycle;if(oldId!==run.id||oldCycle!==state.cycle||(prior!==run.cycles[state.cycle]?.phase&&!state.chartRecord)){state.inspectPoint=null;state.inspectIndex=null;state.chartRecord=null;}state.phaseChanged=state.phaseChanged||Boolean(route()==='simulation'&&prior&&prior!==run.cycles[state.cycle]?.phase);state.event=Math.min(state.event,Math.max(0,(cycleData()?.events.length||1)-1));remember();}
 function errorBox(){return state.error?`<div class="global-error" role="alert"><span>${escape(errorText(state.error))}</span><button data-action="retry">${t('Try again','다시 연결')}</button><button data-action="dismiss-error" aria-label="${t('Dismiss error','오류 닫기')}">×</button></div>`:'';}
 function chartData(index){return phaseData(state.run?.cycles[index]);}
-function chartHeight(width){return width>550?340:Math.max(215,Math.min(270,Math.round(innerHeight*.305)));}
+function chartHeight(width){return width>550?390:350;}
 function chart(index,{mini=false,markers=false,mode='assets',width}={}){
   let data=chartData(index);width=width||Math.max(240,Math.min(1080,document.getElementById('app').clientWidth-32));
   if(data&&route()==='simulation')data={...data,events:responseRecords(data)};
@@ -44,20 +47,47 @@ function chart(index,{mini=false,markers=false,mode='assets',width}={}){
   return renderAssetChart(data||{}, {width,height:mini?100:chartHeight(width),mode,markers,selected,focusIndex:state.inspectIndex});
 }
 function fitCharts(){
-  app.querySelectorAll('[data-responsive-chart]').forEach(frame=>{
-    const width=Math.round(frame.clientWidth);if(width<100)return;
-    frame.innerHTML=chart(Number(frame.dataset.cycle),{width,markers:frame.dataset.markers==='true',mode:frame.dataset.mode});
+  document.querySelectorAll('[data-financial-chart]').forEach(frame=>{
+    const data=chartData(Number(frame.dataset.cycle));if(!data?.history?.length||frame.clientWidth<100)return;
+    if(!nativeCharts.has(frame)){
+      const fallback=frame.innerHTML;
+      try{nativeCharts.set(frame,createFinancialChart(frame,{onInspect:point=>{state.inspectPoint=point;state.inspectIndex=null;refreshChartPanels(false);},onRecord:selectChartRecord}));}
+      catch{frame.innerHTML=fallback;nativeCharts.set(frame,null);}
+    }
+    const instance=nativeCharts.get(frame);
+    if(instance)instance.update(data,{key:state.run.id+'|'+state.cycle+'|'+data.start+'|'+data.phase,chartUnit:state.chartUnit,
+      selectedId:route()==='review'?data.events[state.event]?.id:state.chartRecord?.id,pinnedPoint:state.inspectPoint});
+    else frame.innerHTML=chart(Number(frame.dataset.cycle),{width:frame.clientWidth,markers:true});
   });
+}
+function closeExpandedChart(){if(expandedChart){const {dialog,panel,anchor}=expandedChart;expandedChart=null;if(anchor.isConnected)anchor.replaceWith(panel);dialog.remove();panel.classList.remove('is-expanded');const button=panel.querySelector('[data-action="chart-expand"]');button?.setAttribute('aria-label',t('Expand chart','차트 크게 보기'));button?.focus({preventScroll:true});for(const instance of nativeCharts.values())instance?.resize();}}
+function expandChart(button){
+ if(expandedChart){closeExpandedChart();return;}
+ const panel=button.closest('.data-chart'),anchor=document.createComment('chart-position'),dialog=document.createElement('dialog');
+ panel.before(anchor);dialog.className='chart-fullscreen';panel.classList.add('is-expanded');dialog.append(panel);document.body.append(dialog);expandedChart={dialog,panel,anchor};
+ dialog.addEventListener('cancel',e=>{e.preventDefault();closeExpandedChart();});dialog.addEventListener('close',closeExpandedChart);
+ dialog.showModal();button.setAttribute('aria-label',t('Close expanded chart','확대 차트 닫기'));button.focus({preventScroll:true});for(const instance of nativeCharts.values())instance?.resize();
+}
+function disposeCharts(){closeExpandedChart();for(const instance of nativeCharts.values())instance?.dispose();nativeCharts.clear();}
+function refreshChartPanels(cards=true){
+ const d=cycleData();if(!d?.metrics)return;const reviewMode=route()==='review';
+ document.querySelectorAll('[data-chart-readout]').forEach(el=>el.innerHTML=chartReadout(d,reviewMode));
+ if(cards){document.querySelectorAll('[data-chart-response]').forEach(el=>el.innerHTML=chartResponse(d,reviewMode));const open=preserveDetails();document.querySelectorAll('[data-live-phase]').forEach(el=>el.innerHTML=phaseBar(d));restoreDetails(open);}
+}
+function selectChartRecord(record){
+ if(!record)return;state.inspectPoint=null;state.inspectIndex=null;
+ if(route()==='review'){chooseEvent(cycleData().events.findIndex(e=>e.id===record.id));return;}
+ state.chartRecord={id:record.id,phase:record.phase||cycleData().phase};refreshChartPanels();fitCharts();
 }
 function preserveDetails(){return [...app.querySelectorAll('details[open][data-detail-key]')].map(el=>el.dataset.detailKey);}
 function restoreDetails(keys){app.querySelectorAll('details[data-detail-key]').forEach(el=>{if(keys.includes(el.dataset.detailKey))el.open=true;});}
 function inspectChart(index){
- const d=cycleData(),rows=chartRows(d);if(!rows.length||state.run.status==='running')return;
+ const d=cycleData(),rows=chartRows(d);if(!rows.length)return;
  state.inspectIndex=Math.max(0,Math.min(rows.length-1,index));
- app.querySelectorAll('[data-chart-readout]').forEach(el=>{el.innerHTML=chartReadout(d);});
+ state.inspectPoint=rows[state.inspectIndex];refreshChartPanels(false);
  app.querySelectorAll('[data-chart-scrub]').forEach(el=>{el.value=state.inspectIndex;});fitCharts();
 }
-const {home,emailSetup,amount,simulation,liveContent,responseLog,results,review,recordsPage,settings,chartReadout}=createViews({state,cycles,LOGO,chart,tabs,legend,percent,signed,escape,cycleData});
+const {home,emailSetup,amount,simulation,liveContent,responseLog,results,review,recordsPage,settings,chartReadout,chartResponse,phaseBar,sceneCard}=createViews({state,cycles,LOGO,chart,tabs,legend,percent,signed,escape,cycleData});
 function chrome(){
   document.documentElement.lang=lang();
   const page=route(),labels={home:t('Home','홈'),results:t('Results','결과'),records:t('Records','기록'),settings:t('Settings','설정')};
@@ -71,7 +101,7 @@ function chrome(){
   document.querySelector('meta[name="description"]').content=t('Follow cash preparation and compare Bitcoin buy-and-hold with Risk Guard across three historical declines.','현금 확보 과정과 대표 비트코인 하락장 세 구간의 자산 변화를 비교하세요.');
 }
 function render(){
-  clearTimeout(pollTimer);const page=route();const openDetails=page===lastRoute?preserveDetails():[];if(page!==lastRoute)state.inspectIndex=null;setCycleMode(!['simulation','results','review'].includes(page)||state.run?.model_version==='btc-bear-2');chrome();document.body.dataset.view=page;document.querySelectorAll('[data-nav]').forEach(el=>{const yes=el.dataset.nav===page||(el.dataset.nav==='home'&&['amount','simulation'].includes(page))||(el.dataset.nav==='results'&&page==='review');el.classList.toggle('active',yes);if(yes)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');});
+  clearTimeout(pollTimer);disposeCharts();const page=route();const openDetails=page===lastRoute?preserveDetails():[];if(page!==lastRoute){state.inspectIndex=null;state.inspectPoint=null;state.chartRecord=null;}setCycleMode(!['simulation','results','review'].includes(page)||state.run?.model_version==='btc-bear-2');chrome();document.body.dataset.view=page;document.querySelectorAll('[data-nav]').forEach(el=>{const yes=el.dataset.nav===page||(el.dataset.nav==='home'&&['amount','simulation'].includes(page))||(el.dataset.nav==='results'&&page==='review');el.classList.toggle('active',yes);if(yes)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');});
   if(state.booting){app.innerHTML=`<div class="page"><section class="empty-state"><div class="loading-ring"></div><h2>${t('Preparing your market','시장을 준비하고 있어요')}</h2><p>${t('Checking verified data and saved records.','검증된 데이터와 이전 기록을 확인해요.')}</p></section></div>`;return;}
   app.innerHTML=errorBox()+({home,email:emailSetup,amount,simulation,results,review,records:recordsPage,settings}[page])();app.className='screen-enter';restoreDetails(openDetails);fitCharts();
   const timeline=app.querySelector('.review-timeline'),selected=timeline?.querySelector('.active');if(selected)timeline.scrollLeft=selected.offsetLeft-timeline.offsetLeft-timeline.clientWidth/2+selected.clientWidth/2;
@@ -93,8 +123,8 @@ async function poll(){
       if(route()!=='simulation')return;
       if(g.status==='finished'){await navigate('results');return;}
       if(g.status!==oldStatus){render();return;}
-      const d=cycleData(),live=document.getElementById('live-content'),details=preserveDetails();
-      if(live&&d?.metrics)live.innerHTML=liveContent(d,d.events.at(-1));
+      const d=state.run.cycles[state.cycle],details=preserveDetails();
+      refreshChartPanels();
       const log=document.getElementById('response-log');
       if(log&&d?.metrics){const key=d.phase+'|'+responseFeedRecords(d).map(e=>e.id).join('|');if(log.dataset.key!==key){log.innerHTML=responseLog(d);log.dataset.key=key;}}
       restoreDetails(details);fitCharts();
@@ -109,15 +139,15 @@ async function poll(){
   await pollPromise;pollPromise=null;schedulePoll();
 }
 async function perform(fn){if(state.busy)return;state.busy=true;document.body.classList.add('is-busy');app.querySelectorAll('button').forEach(b=>b.disabled=true);clearTimeout(pollTimer);if(pollPromise)await pollPromise;try{await fn();state.error='';}catch(e){state.error=e.message;}finally{state.busy=false;document.body.classList.remove('is-busy');render();}}
-async function playback(action,speed){if(!state.run)return;const g=await api('/sessions/'+state.run.id+'/playback',{action,...(speed?{speed}:{})});receive(g,{follow:true});if(g.status==='finished'&&action!=='pause')await navigate('results');else render();}
+async function playback(action,speed){if(!state.run)return;const id=state.run.id,follow=action==='resume'||action==='finish';let g=await api('/sessions/'+id+'/playback',{action,...(speed?{speed}:{})});if(!follow&&state.cycle!==g.view_cycle&&state.cycle<=g.current_cycle)g=await api('/sessions/'+id+'?view='+state.cycle);receive(g,{follow});if(g.status==='finished'&&action!=='pause')await navigate('results');else render();}
 async function navigate(page){
   clearTimeout(pollTimer);if(page!==route())state.inspectIndex=null;if(page!=='simulation'&&state.run?.status==='running'){const g=await api('/sessions/'+state.run.id+'/playback',{action:'pause'});receive(g);}
   if(page==='records')state.records=(await api('/records')).records;
   if(location.hash!=='#'+page)history.pushState(null,'','#'+page);render();
 }
-function chooseEvent(i){const events=cycleData()?.events||[];state.event=Math.max(0,Math.min(events.length-1,i));remember();render();app.querySelector(`.review-timeline [data-index="${state.event}"]`)?.focus({preventScroll:true});}
+function chooseEvent(i){const events=cycleData()?.events||[];state.event=Math.max(0,Math.min(events.length-1,i));state.inspectPoint=null;state.inspectIndex=null;state.chartRecord=null;remember();refreshChartPanels();fitCharts();document.querySelectorAll('.review-timeline [data-index]').forEach(el=>{const selected=Number(el.dataset.index)===state.event;el.classList.toggle('active',selected);el.setAttribute('aria-pressed',String(selected));});const detail=document.querySelector('[data-review-detail]');if(detail)detail.innerHTML=sceneCard(cycleData(),eventText(events[state.event]));if(!expandedChart)app.querySelector(`.review-timeline [data-index="${state.event}"]`)?.focus({preventScroll:true});}
 function toast(text){const el=document.getElementById('toast');el.textContent=text;el.classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('visible'),4500);}
-async function modal(title,body){if(state.run?.status==='running')await playback('pause');previousFocus=document.activeElement;document.getElementById('modal-root').innerHTML=`<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button class="modal-close" data-action="close-modal" aria-label="${t('Close','닫기')}">×</button><h2 id="modal-title">${title}</h2>${body}</section></div>`;for(const e of [app,document.querySelector('.site-header'),document.querySelector('.bottom-nav'),document.querySelector('.site-footer')])e.inert=true;document.body.style.overflow='hidden';document.querySelector('.modal button').focus();}
+async function modal(title,body,sheet=false){closeExpandedChart();if(state.run?.status==='running')await playback('pause');previousFocus=document.activeElement;document.getElementById('modal-root').innerHTML=`<div class="modal-backdrop ${sheet?'response-sheet-backdrop':''}"><section class="modal ${sheet?'response-sheet':''}" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button class="modal-close" data-action="close-modal" aria-label="${t('Close','닫기')}">×</button><h2 id="modal-title">${title}</h2>${body}</section></div>`;for(const e of [app,document.querySelector('.site-header'),document.querySelector('.bottom-nav'),document.querySelector('.site-footer')])e.inert=true;document.body.style.overflow='hidden';document.querySelector('.modal button').focus();}
 function closeModal(){document.getElementById('modal-root').innerHTML='';for(const e of [app,document.querySelector('.site-header'),document.querySelector('.bottom-nav'),document.querySelector('.site-footer')])e.inert=false;document.body.style.overflow='';if(previousFocus?.isConnected)previousFocus.focus({preventScroll:true});}
 async function responseDetails(record){
   if(!record)return;const e=eventText(record);
@@ -132,7 +162,7 @@ async function responseDetails(record){
     [t('Buy & hold · that daily close','단순 보유 · 해당일 종가'),amount(e.hold_value)],
     [t('Risk Guard · that daily close','리스크 가드 · 해당일 종가'),amount(e.guard_value)],
   ];
-  await modal(t('Risk Guard response record','리스크 가드 대응 기록'),`<div class="response-dialog-heading"><span class="response-kind ${e.kind}">${typeLabel(e.kind)}</span><time>${e.at}</time></div><p>${e.action}</p><p class="response-signal">${e.signal}</p><dl class="response-detail-list">${rows.map(([label,value])=>`<div><dt>${label}</dt><dd>${value}</dd></div>`).join('')}</dl><p class="fine">${e.phase==='preparation'?t('Original preparation-account amounts, before the equal-value bear comparison.','하락장 동일 금액 환산 전, 사전 운용 계좌 기준 금액이에요.'):t('Amounts use this period’s comparison basis. Cash and weight are immediately after the response; account values are at the daily close.','해당 구간 비교 기준 금액이에요. 현금·비중은 대응 직후, 평가액은 해당일 종가 기준이에요.')}</p>`);
+  await modal(t('Risk Guard response record','리스크 가드 대응 기록'),`<div class="response-dialog-heading"><span class="response-kind ${e.kind}">${typeLabel(e.kind)}</span><time>${e.at}</time></div><p>${e.action}</p><p class="response-signal">${e.signal}</p><dl class="response-detail-list">${rows.map(([label,value])=>`<div><dt>${label}</dt><dd>${value}</dd></div>`).join('')}</dl><p class="fine">${e.phase==='preparation'?t('Original preparation-account amounts, before the equal-value bear comparison.','하락장 동일 금액 환산 전, 사전 운용 계좌 기준 금액이에요.'):t('Amounts use this period’s comparison basis. Cash and weight are immediately after the response; account values are at the daily close.','해당 구간 비교 기준 금액이에요. 현금·비중은 대응 직후, 평가액은 해당일 종가 기준이에요.')}</p>`,true);
 }
 function method(){return modal(t('How the comparison works','비교 결과를 읽는 기준'),`<p>${t('Each period is compared independently. The starting basis is explained below.','각 구간은 독립적으로 비교하며, 시작 기준은 아래와 같아요.')}</p><ul class="method-list">${[
 ...(state.run?.model_version==='btc-guard-1'?[['Both accounts originally begin with 100% Bitcoin.','이전 전체 사이클은 두 계좌 모두 BTC 100%로 출발해요.']]:[['Preparation replays the original strategy from its first Bitcoin purchase. Each scenario spends 30% of playback on preparation and 70% on the decline.','사전 운용은 원래 첫 BTC 매수부터 재생해요. 각 구간 재생의 30%는 현금 확보, 70%는 하락장 비교예요.'],['At the bear-market start close, each account is independently rebased to the input capital. Risk Guard inherits its existing cash and Bitcoin mix. Earlier gains are excluded.','하락 시작일 종가에서 각 계좌를 입력 금액으로 독립 환산해요. 가드는 기존 현금·BTC 비중을 이어받으며, 이전 수익은 하락장 손익에 합산하지 않아요.'],['The three largest peak-to-trough closing-price declines were selected retrospectively, one from each original cycle. Their dates were not predicted.','각 원래 사이클에서 가장 큰 종가 고점·저점 하락 구간을 사후 선정했어요. 날짜를 사전에 예측한 결과가 아니에요.'],['The unchanged-mix benchmark separates existing cash holdings from subsequent trading effects.','같은 시작 비중을 고정 보유한 비교 계좌로 기존 현금과 추가 매매 효과를 구분해요.']]),
@@ -192,14 +222,19 @@ document.addEventListener('click',async e=>{
   if(a==='skip-splash'){closeSplash();return;}if(a==='close-modal'){closeModal();return;}if(a==='dismiss-error'){state.error='';render();return;}
   if(a==='email-report'){document.getElementById('email-report')?.scrollIntoView({behavior:'smooth',block:'start'});return;}
   if(a==='language'){setLanguage(el.dataset.language);if(!state.amountEdited)state.amountDraft=defaultCapital(lang());render();return;}
-  if(a==='chart-unit'){if(CHART_UNITS.includes(el.dataset.unit)){state.chartUnit=el.dataset.unit;render();app.querySelector(`[data-action="chart-unit"][data-unit="${state.chartUnit}"]`)?.focus({preventScroll:true});}return;}
+  if(a==='chart-unit'){if(CHART_UNITS.includes(el.dataset.unit)){state.chartUnit=el.dataset.unit;document.querySelectorAll('[data-action="chart-unit"]').forEach(b=>{const active=b.dataset.unit===state.chartUnit;b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));});fitCharts();}return;}
+  if(a==='chart-expand'){expandChart(el);return;}
+  if(a==='chart-current'){state.chartRecord=null;state.inspectPoint=null;state.inspectIndex=null;for(const instance of nativeCharts.values())instance?.reset();refreshChartPanels();fitCharts();return;}
+  if(a==='previous-review'||a==='next-review'){chooseEvent(state.event+(a==='next-review'?1:-1));return;}
+  if(a==='event'){const index=Number(el.dataset.index);if(route()==='review')chooseEvent(index);else selectChartRecord(responseRecords(cycleData())[index]);return;}
+  if(a==='response-info'||a==='chart-record-details'){const root=state.run.cycles[state.cycle],d=el.dataset.phase==='preparation'&&root.preparation?root.preparation:root,record=responseRecords(d).find(x=>x.id===el.dataset.id);if(a==='response-info')selectChartRecord(record);await perform(()=>responseDetails(record));return;}
   if(a==='preset'){state.amountEdited=true;state.amountDraft=Number(el.dataset.amount);document.getElementById('amount-input').value=inputAmount(state.amountDraft,lang());document.getElementById('amount-error').textContent='';app.querySelectorAll('[data-action="preset"]').forEach(x=>x.classList.toggle('selected',x===el));return;}
   await perform(async()=>{
     if(a==='edit-contact'){state.emailEditing=true;state.reportEmailDraft='';state.reportConsent=false;await navigate('settings');}else if(a==='cancel-contact'){state.emailEditing=false;state.reportEmailDraft='';state.reportConsent=false;render();}else if(a==='settings')await navigate('settings');else if(a==='back')await navigate(({amount:'home',simulation:'amount',review:'results',results:'home',records:'home',settings:'home'})[route()]||'home');else if(a==='begin')await navigate('amount');else if(a==='method')await method();else if(a==='flow')await flow();else if(a==='start-from-flow'){closeModal();await navigate('amount');}
     else if(a==='play')await playback(state.run.status==='running'?'pause':'resume');else if(a==='speed')await playback('speed',Number(el.dataset.speed));else if(a==='finish'){toast(t('Finishing your comparison and preparing the email report…','비교를 마치고 이메일 보고서를 준비하고 있어요…'));await playback('finish');}else if(a==='retry-delivery')receive(await api('/sessions/'+state.run.id+'/delivery/retry',{}));else if(a==='resume'){await playback('resume');await navigate('simulation');}
-    else if(a==='sim-cycle'){state.inspectIndex=null;state.cycle=Number(el.dataset.cycle);const g=await api('/sessions/'+state.run.id+'?view='+state.cycle);receive(g);render();}
-    else if(a==='result-cycle'){state.cycle=Number(el.dataset.cycle);state.inspectIndex=null;remember();render();}
-    else if(a==='review-phase'){state.reviewPhase=el.dataset.phase==='preparation'?'preparation':'bear';state.inspectIndex=null;state.event=0;remember();render();}else if(a==='review-preparation'){state.reviewPhase='preparation';state.event=0;remember();await navigate('review');}else if(a==='review-cycle'){state.reviewPhase='bear';state.cycle=Number(el.dataset.cycle);state.event=0;remember();await navigate('review');}
+    else if(a==='sim-cycle'){state.inspectIndex=null;state.inspectPoint=null;state.chartRecord=null;state.cycle=Number(el.dataset.cycle);const g=await api('/sessions/'+state.run.id+'?view='+state.cycle);receive(g);render();}
+    else if(a==='result-cycle'){state.cycle=Number(el.dataset.cycle);state.inspectIndex=null;state.inspectPoint=null;state.chartRecord=null;remember();render();}
+    else if(a==='review-phase'){state.reviewPhase=el.dataset.phase==='preparation'?'preparation':'bear';state.inspectIndex=null;state.inspectPoint=null;state.chartRecord=null;state.event=0;remember();render();}else if(a==='review-preparation'){state.reviewPhase='preparation';state.event=0;remember();await navigate('review');}else if(a==='review-cycle'){state.reviewPhase='bear';state.cycle=Number(el.dataset.cycle);state.event=0;remember();await navigate('review');}
     else if(a==='event'){const i=Number(el.dataset.index);if(route()==='simulation')await responseDetails(responseRecords(cycleData())[i]);else chooseEvent(i);}
     else if(a==='response-info'){const root=state.run.cycles[state.cycle],d=el.dataset.phase==='preparation'&&root.preparation?root.preparation:root;await responseDetails(responseRecords(d).find(x=>x.id===el.dataset.id));}
     else if(a==='event-info')await responseDetails(responseRecords(cycleData()).find(x=>x.id===el.dataset.id));
@@ -210,7 +245,7 @@ document.addEventListener('click',async e=>{
     else if(a==='retry'){pollFailures=0;state.config=await api('/config');state.contact=await api('/contact');if(!state.config.ready)throw new Error('검증된 데이터를 준비하고 있어요. 잠시 후 다시 시도해 주세요.');state.contact=await api('/contact');if(state.run)receive(await api('/sessions/'+state.run.id+'?view='+state.cycle));state.error='';render();}
   });
 });
-document.addEventListener('keydown',e=>{const m=document.querySelector('.modal');if(m){if(e.key==='Escape'){e.preventDefault();closeModal();}else if(e.key==='Tab'){const items=[...m.querySelectorAll('button:not(:disabled),a[href],input')];if(e.shiftKey&&document.activeElement===items[0]){e.preventDefault();items.at(-1).focus();}else if(!e.shiftKey&&document.activeElement===items.at(-1)){e.preventDefault();items[0].focus();}}return;}if((e.key==='Enter'||e.key===' ')&&e.target.matches('.chart-marker')){e.preventDefault();e.target.dispatchEvent(new MouseEvent('click',{bubbles:true}));}});
+document.addEventListener('keydown',e=>{const m=document.querySelector('.modal');if(m){if(e.key==='Escape'){e.preventDefault();closeModal();}else if(e.key==='Tab'){const items=[...m.querySelectorAll('button:not(:disabled),a[href],input')];if(e.shiftKey&&document.activeElement===items[0]){e.preventDefault();items.at(-1).focus();}else if(!e.shiftKey&&document.activeElement===items.at(-1)){e.preventDefault();items[0].focus();}}return;}if(e.target.matches('[data-financial-chart]')&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();const rows=cycleData()?.history||[],found=state.inspectPoint?rows.findIndex(p=>p.position===state.inspectPoint.position):-1,index=found>=0?found:rows.length-1;inspectChart(index+(e.key==='ArrowLeft'?-1:1));return;}if((e.key==='Enter'||e.key===' ')&&e.target.matches('.chart-marker')){e.preventDefault();e.target.dispatchEvent(new MouseEvent('click',{bubbles:true}));}});
 window.addEventListener('hashchange',async()=>{try{if(route()!=='simulation'&&state.run?.status==='running')receive(await api('/sessions/'+state.run.id+'/playback',{action:'pause'}));if(route()==='records')state.records=(await api('/records')).records;}catch(e){state.error=e.message;}render();});
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&state.run?.status==='running')api('/sessions/'+state.run.id+'/playback',{action:'pause'},true).then(receive).catch(()=>{});else if(!document.hidden&&route()==='simulation'&&state.run)perform(async()=>{receive(await api('/sessions/'+state.run.id+'?view='+state.cycle));render();});});
 window.addEventListener('pagehide',()=>{if(state.run?.status==='running')api('/sessions/'+state.run.id+'/playback',{action:'pause'},true).catch(()=>{});});

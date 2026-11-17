@@ -18,7 +18,7 @@ export function chartGeometry(data,{width=340,height=250,mode='assets'}={}){
   y:value=>top+plotHeight-Math.max(0,value)/maximum*plotHeight};
 }
 
-export function renderAssetChart(data,{width=340,height=250,mode='assets',markers=false,selected=null,focusIndex=null}={}){
+export function renderAssetChart(data,{width=340,height=250,mode='assets',markers=false,selected=null,focusIndex=null,allMarkers=false,markerLabels='all'}={}){
  const rows=data?.history||[];
  if(!rows.length)return `<div class="chart-empty">${t('The chart appears as playback begins.','재생을 시작하면 차트가 나타나요.')}</div>`;
  if(mode==='cash'&&!rows.every(p=>Number.isFinite(p.btc_weight)))mode='assets';
@@ -31,9 +31,9 @@ export function renderAssetChart(data,{width=340,height=250,mode='assets',marker
  const scene=markers&&Number.isInteger(selected)?events[selected]:null;
  const cursor=scene?{position:scene.position}:focus;
  const cursorLine=cursor?`<line class="plot-cursor" x1="${x(cursor.position)}" x2="${x(cursor.position)}" y1="${top}" y2="${top+plotHeight}"/>`:'';
- const dots=markers?representativeIndices(events,selected).map(i=>{
+ const dots=markers?(allMarkers?events.map((_,i)=>i):representativeIndices(events,selected)).map(i=>{
   const e=events[i],cx=x(e.position),cy=y(mode==='cash'?100-e.btc_weight:e.guard_value),chosen=i===selected;
-  return `<g class="chart-marker ${chosen?'selected':''}" role="button" tabindex="0" data-action="event" data-index="${i}" aria-label="${i+1} · ${e.at} · ${typeLabel(e.kind)}"><circle class="plot-hit" cx="${cx}" cy="${cy}" r="22"/><circle class="plot-event ${e.kind}" cx="${cx}" cy="${cy}" r="${chosen?7:4.5}"/>${chosen?`<text class="plot-event-number" x="${cx}" y="${Math.max(top+12,cy-13)}" text-anchor="middle">${i+1}</text>`:''}</g>`;
+  return `<g class="chart-marker ${chosen?'selected':''}" role="button" tabindex="0" data-action="event" data-index="${i}" aria-label="${markerLabels==='none'?'':(i+1)+' · '}${e.at} · ${typeLabel(e.kind)}"><circle class="plot-hit" cx="${cx}" cy="${cy}" r="22"/><circle class="plot-event ${e.kind}" cx="${cx}" cy="${cy}" r="${chosen?7:markerLabels!=='all'?2.5:4.5}"/>${markerLabels!=='none'&&(chosen||(allMarkers&&markerLabels!=='selected'))?`<text class="plot-event-number" x="${cx}" y="${Math.max(top+12,cy-13)}" text-anchor="middle">${i+1}</text>`:''}</g>`;
  }).join(''):'';
  const ending=rows.length===1?`<circle cx="${x(first.position)}" cy="${y(value(first,'guard'))}" r="4" fill="${mode==='cash'?'#edc17d':'#4bd6ad'}"/>`:'';
  const cashArea=mode==='cash'?`<path d="${path('guard')} L${x(last.position)},${top+plotHeight} L${x(first.position)},${top+plotHeight}Z" fill="#edc17d" opacity=".12"/>`:'';
