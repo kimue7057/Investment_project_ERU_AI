@@ -53,7 +53,7 @@ function showReport(){
  const d=source(),fallback=renderAssetChart({...d,chart_unit:'month'},{width:Math.min(1100,Math.max(288,app.clientWidth-32)),height:320,markers:false,allMarkers:true,markerLabels:'none',selected:state.active});
  app.innerHTML=reportView(state,fallback);app.scrollTop=0;
  const host=document.getElementById('report-chart');
- try{controller=createFinancialChart(host,{palette:{hold:'#cfd3de',guard:'#ffd17a',baseline:'#8f98a8'},onInspect:updateReadout,onRecord:record=>activate(decisions(current()).findIndex(e=>e.id===record.id),true)});chartUpdate();}
+ try{controller=createFinancialChart(host,{palette:{hold:'#ff777b',guard:'#6ae7aa',baseline:'#8f98a8'},onInspect:updateReadout,onRecord:record=>activate(decisions(current()).findIndex(e=>e.id===record.id),true)});chartUpdate();}
  catch{controller?.dispose();controller=null;host.innerHTML=fallback;}
  if(state.stage==='bear'&&state.active>=0)activate(state.active);
  app.style.scrollPaddingTop='24px';

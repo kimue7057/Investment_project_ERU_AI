@@ -84,7 +84,7 @@ def chart_png(cycle,locale="ko",*,screen=False,reference=None):
         for xx in range(left,width-right,16):draw.line((xx,yy,min(xx+7,width-right),yy),fill="#263348",width=2)
         text=_axis(maximum*(1-fraction),labels);box=draw.textbbox((0,0),text,font=font)
         draw.text((left-22-(box[2]-box[0]),yy-22),text,font=font,fill=muted)
-    red,green=("#cfd3de","#ffd17a") if screen else (RED,GREEN)
+    red,green=("#ff777b","#6ae7aa") if screen else (RED,GREEN)
     if screen and reference:
         yy=y(reference)
         for xx in range(left,width-right,20):draw.line((xx,yy,min(xx+12,width-right),yy),fill="#8f98a8",width=2)
@@ -104,8 +104,8 @@ def chart_png(cycle,locale="ko",*,screen=False,reference=None):
     draw.text((left,top+h+24),cycle["start"],font=small,fill=muted)
     end=cycle["end"];box=draw.textbbox((0,0),end,font=small)
     draw.text((width-right-(box[2]-box[0]),top+h+24),end,font=small,fill=muted)
-    draw.line((left,height-40,left+40,height-40),fill=red,width=5);draw.text((left+54,height-58),labels.t("Buy & hold","단순 보유"),font=font,fill=TEXT)
-    draw.line((left+390,height-40,left+430,height-40),fill=green,width=5);draw.text((left+444,height-58),labels.t("Risk Guard","리스크 가드"),font=font,fill=TEXT)
+    draw.line((left,height-40,left+40,height-40),fill=red,width=5);draw.text((left+54,height-58),labels.t("Buy & hold","단순 보유"),font=font,fill=red if screen else TEXT)
+    draw.line((left+390,height-40,left+430,height-40),fill=green,width=5);draw.text((left+444,height-58),labels.t("Risk Guard","리스크 가드"),font=font,fill=green if screen else TEXT)
     output=io.BytesIO();image.save(output,format="PNG",optimize=True);return output.getvalue()
 
 
