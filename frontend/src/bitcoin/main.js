@@ -4,6 +4,7 @@ import './dashboard.css';
 import {renderAssetChart,chartGeometry} from './chartView';
 import {t,lang,setLanguage,setCycleMode,cycleName,money,typeLabel,eventText,errorText} from './i18n';
 import {createViews} from './views';
+import {responseRecords,responseFeedRecords} from './dashboardViews';
 
 const app=document.getElementById('app');
 const LOGO='/assets/riskguard-logo.webp';
@@ -18,7 +19,8 @@ let pollTimer,pollPromise=null,pollFailures=0,lastRoute='',previousFocus=null,to
 const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const signed=n=>(n>0?'+':'')+money(n);
 const percent=n=>(n>0?'+':'')+Number(n).toFixed(1)+'%';
-const cycleData=()=>{const c=state.run?.cycles[state.cycle];return route()==='review'&&state.reviewPhase==='preparation'&&c?.preparation?c.preparation:c;};
+function phaseData(c){const d=route()==='review'&&state.reviewPhase==='preparation'&&c?.preparation?c.preparation:c;return route()==='review'&&d?{...d,events:responseRecords(d)}:d;}
+const cycleData=()=>phaseData(state.run?.cycles[state.cycle]);
 function route(){if(!state.booting&&!state.contact?.registered)return 'email';const p=location.hash.slice(1)||'home';return ['home','email','amount','simulation','results','review','records','settings'].includes(p)?p:'home';}
 function tabs(action='cycle'){return `<div class="cycle-tabs" role="group" aria-label="${t('Market cycles','사이클 선택')}">${cycles.map((c,i)=>`<button data-action="${action}" data-cycle="${i}" class="${state.cycle===i?'active':''}" aria-pressed="${state.cycle===i}" ${state.run&&i>state.run.current_cycle?'disabled':''}>${cycleName(i)}</button>`).join('')}</div>`;}
 function legend(){return `<div class="legend"><span><i></i>${t('Buy & hold','단순 보유')}</span><span><i class="green"></i>${t('Risk Guard','리스크 가드')}</span><small>${currencyCode(lang())}</small></div>`;}
@@ -31,11 +33,13 @@ async function api(path,body,keepalive=false){
 function remember(){if(!state.run)return;try{localStorage.setItem(LAST,state.run.id);sessionStorage.setItem('eru-btc-view-'+state.run.id,JSON.stringify({cycle:state.cycle,event:state.event,phase:state.reviewPhase}));}catch{}}
 function receive(run,{follow=false}={}){const prior=state.run?.cycles[state.cycle]?.phase;state.run=run;if(run.status==='running')state.inspectIndex=null;if(follow||state.cycle>run.current_cycle)state.cycle=run.view_cycle;state.phaseChanged=state.phaseChanged||Boolean(route()==='simulation'&&prior&&prior!==run.cycles[state.cycle]?.phase);state.event=Math.min(state.event,Math.max(0,(cycleData()?.events.length||1)-1));remember();}
 function errorBox(){return state.error?`<div class="global-error" role="alert"><span>${escape(errorText(state.error))}</span><button data-action="retry">${t('Try again','다시 연결')}</button><button data-action="dismiss-error" aria-label="${t('Dismiss error','오류 닫기')}">×</button></div>`:'';}
-function chartData(index){const c=state.run?.cycles[index];return route()==='review'&&state.reviewPhase==='preparation'&&c?.preparation?c.preparation:c;}
+function chartData(index){return phaseData(state.run?.cycles[index]);}
 function chartHeight(width){return width>550?340:Math.max(215,Math.min(270,Math.round(innerHeight*.305)));}
 function chart(index,{mini=false,markers=false,mode='assets',width}={}){
-  const data=chartData(index);width=width||Math.max(240,Math.min(1080,document.getElementById('app').clientWidth-32));
-  return renderAssetChart(data||{}, {width,height:mini?100:chartHeight(width),mode,markers,selected:route()==='review'?state.event:null,focusIndex:state.inspectIndex});
+  let data=chartData(index);width=width||Math.max(240,Math.min(1080,document.getElementById('app').clientWidth-32));
+  if(data&&route()==='simulation')data={...data,events:responseRecords(data)};
+  const selected=route()==='review'?state.event:markers&&state.inspectIndex===null?(data?.events.length||0)-1:null;
+  return renderAssetChart(data||{}, {width,height:mini?100:chartHeight(width),mode,markers,selected,focusIndex:state.inspectIndex});
 }
 function fitCharts(){
   app.querySelectorAll('[data-responsive-chart]').forEach(frame=>{
@@ -51,7 +55,7 @@ function inspectChart(index){
  app.querySelectorAll('[data-chart-readout]').forEach(el=>{el.innerHTML=chartReadout(d);});
  app.querySelectorAll('[data-chart-scrub]').forEach(el=>{el.value=state.inspectIndex;});fitCharts();
 }
-const {home,emailSetup,amount,simulation,liveContent,results,review,recordsPage,settings,chartReadout}=createViews({state,cycles,LOGO,chart,tabs,legend,percent,signed,escape,cycleData});
+const {home,emailSetup,amount,simulation,liveContent,responseLog,results,review,recordsPage,settings,chartReadout}=createViews({state,cycles,LOGO,chart,tabs,legend,percent,signed,escape,cycleData});
 function chrome(){
   document.documentElement.lang=lang();
   const page=route(),labels={home:t('Home','홈'),results:t('Results','결과'),records:t('Records','기록'),settings:t('Settings','설정')};
@@ -89,6 +93,8 @@ async function poll(){
       if(g.status!==oldStatus){render();return;}
       const d=cycleData(),live=document.getElementById('live-content'),details=preserveDetails();
       if(live&&d?.metrics)live.innerHTML=liveContent(d,d.events.at(-1));
+      const log=document.getElementById('response-log');
+      if(log&&d?.metrics){const key=d.phase+'|'+responseFeedRecords(d).map(e=>e.id).join('|');if(log.dataset.key!==key){log.innerHTML=responseLog(d);log.dataset.key=key;}}
       restoreDetails(details);fitCharts();
       document.querySelectorAll('[data-run-progress]').forEach(el=>el.value=g.elapsed);
       document.querySelectorAll('[data-run-progress-label]').forEach(el=>el.textContent=Math.floor(g.elapsed/3)+'%');
@@ -111,6 +117,21 @@ function chooseEvent(i){const events=cycleData()?.events||[];state.event=Math.ma
 function toast(text){const el=document.getElementById('toast');el.textContent=text;el.classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('visible'),4500);}
 async function modal(title,body){if(state.run?.status==='running')await playback('pause');previousFocus=document.activeElement;document.getElementById('modal-root').innerHTML=`<div class="modal-backdrop"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button class="modal-close" data-action="close-modal" aria-label="${t('Close','닫기')}">×</button><h2 id="modal-title">${title}</h2>${body}</section></div>`;for(const e of [app,document.querySelector('.site-header'),document.querySelector('.bottom-nav'),document.querySelector('.site-footer')])e.inert=true;document.body.style.overflow='hidden';document.querySelector('.modal button').focus();}
 function closeModal(){document.getElementById('modal-root').innerHTML='';for(const e of [app,document.querySelector('.site-header'),document.querySelector('.bottom-nav'),document.querySelector('.site-footer')])e.inert=false;document.body.style.overflow='';if(previousFocus?.isConnected)previousFocus.focus({preventScroll:true});}
+async function responseDetails(record){
+  if(!record)return;const e=eventText(record);
+  const amount=n=>lang()==='ko'?inputAmount(n,'ko')+'원':'S$'+inputAmount(n,'en');
+  const rows=[
+    [t('Signal daily close','판단 일봉 종가'),e.signal_at],
+    [e.kind==='wait'?t('Decision date · no order','보류일 · 주문 없음'):t('Next daily open execution','다음 일봉 시가 체결'),e.at],
+    ...(e.kind==='wait'?[]:[[t('Trade value','거래금액'),amount(e.trade_value)],[t('Trading fee','매매 수수료'),amount(e.fee)]]),
+    [t('Cash before response','대응 전 현금'),amount(e.cash_before)],
+    [t('Cash after response','대응 후 현금'),amount(e.cash_after)],
+    [t('BTC weight after response','대응 후 BTC 비중'),e.btc_weight.toFixed(1)+'%'],
+    [t('Buy & hold · that daily close','단순 보유 · 해당일 종가'),amount(e.hold_value)],
+    [t('Risk Guard · that daily close','리스크 가드 · 해당일 종가'),amount(e.guard_value)],
+  ];
+  await modal(t('Risk Guard response record','리스크 가드 대응 기록'),`<div class="response-dialog-heading"><span class="response-kind ${e.kind}">${typeLabel(e.kind)}</span><time>${e.at}</time></div><p>${e.action}</p><p class="response-signal">${e.signal}</p><dl class="response-detail-list">${rows.map(([label,value])=>`<div><dt>${label}</dt><dd>${value}</dd></div>`).join('')}</dl><p class="fine">${e.phase==='preparation'?t('Original preparation-account amounts, before the equal-value bear comparison.','하락장 동일 금액 환산 전, 사전 운용 계좌 기준 금액이에요.'):t('Amounts use this period’s comparison basis. Cash and weight are immediately after the response; account values are at the daily close.','해당 구간 비교 기준 금액이에요. 현금·비중은 대응 직후, 평가액은 해당일 종가 기준이에요.')}</p>`);
+}
 function method(){return modal(t('How the comparison works','비교 결과를 읽는 기준'),`<p>${t('Each period is compared independently. The starting basis is explained below.','각 구간은 독립적으로 비교하며, 시작 기준은 아래와 같아요.')}</p><ul class="method-list">${[
 ...(state.run?.model_version==='btc-guard-1'?[['Both accounts originally begin with 100% Bitcoin.','이전 전체 사이클은 두 계좌 모두 BTC 100%로 출발해요.']]:[['Preparation replays the original strategy from its first Bitcoin purchase. Each scenario spends 30% of playback on preparation and 70% on the decline.','사전 운용은 원래 첫 BTC 매수부터 재생해요. 각 구간 재생의 30%는 현금 확보, 70%는 하락장 비교예요.'],['At the bear-market start close, each account is independently rebased to the input capital. Risk Guard inherits its existing cash and Bitcoin mix. Earlier gains are excluded.','하락 시작일 종가에서 각 계좌를 입력 금액으로 독립 환산해요. 가드는 기존 현금·BTC 비중을 이어받으며, 이전 수익은 하락장 손익에 합산하지 않아요.'],['The three largest peak-to-trough closing-price declines were selected retrospectively, one from each original cycle. Their dates were not predicted.','각 원래 사이클에서 가장 큰 종가 고점·저점 하락 구간을 사후 선정했어요. 날짜를 사전에 예측한 결과가 아니에요.'],['The unchanged-mix benchmark separates existing cash holdings from subsequent trading effects.','같은 시작 비중을 고정 보유한 비교 계좌로 기존 현금과 추가 매매 효과를 구분해요.']]),
 ['Decisions use completed daily candles. Trades execute at the next daily open.','완료 일봉으로 판단하고 다음 일봉 시가에 분할 매매해요.'],
@@ -159,7 +180,7 @@ document.addEventListener('submit',async e=>{
   state.amountDraft=n;await perform(async()=>{if(state.run?.status==='running')await api('/sessions/'+state.run.id+'/playback',{action:'pause'});const run=await api('/sessions',{amount:n.toFixed(2),locale:lang()});state.reportEmailDraft='';state.reportConsent=false;state.cycle=0;state.event=0;receive(run,{follow:true});await navigate('simulation');});
 });
 document.addEventListener('click',async e=>{
-  const plot=e.target.closest('.responsive-plot');if(plot&&route()!=='review'&&state.run?.status!=='running'){const d=cycleData(),box=plot.getBoundingClientRect(),g=chartGeometry(d,{width:plot.viewBox.baseVal.width,height:plot.viewBox.baseVal.height,mode:plot.classList.contains('cash-plot')?'cash':'assets'}),position=((e.clientX-box.left)*g.width/box.width-g.left)/g.plotWidth*100;let closest=0;d.history.forEach((p,i)=>{if(Math.abs(p.position-position)<Math.abs(d.history[closest].position-position))closest=i;});inspectChart(closest);return;}
+  const plot=e.target.closest('.responsive-plot');if(plot&&!e.target.closest('[data-action]')&&route()!=='review'&&state.run?.status!=='running'){const d=cycleData(),box=plot.getBoundingClientRect(),g=chartGeometry(d,{width:plot.viewBox.baseVal.width,height:plot.viewBox.baseVal.height}),position=((e.clientX-box.left)*g.width/box.width-g.left)/g.plotWidth*100;let closest=0;d.history.forEach((p,i)=>{if(Math.abs(p.position-position)<Math.abs(d.history[closest].position-position))closest=i;});inspectChart(closest);return;}
 
   const link=e.target.closest('a[href^="#"]');if(link){e.preventDefault();await perform(()=>navigate(link.hash.slice(1)||'home'));return;}
   if(e.target.classList.contains('modal-backdrop'))return closeModal();const el=e.target.closest('[data-action]');if(!el||el.disabled)return;const a=el.dataset.action;
@@ -173,8 +194,9 @@ document.addEventListener('click',async e=>{
     else if(a==='sim-cycle'){state.inspectIndex=null;state.cycle=Number(el.dataset.cycle);const g=await api('/sessions/'+state.run.id+'?view='+state.cycle);receive(g);render();}
     else if(a==='result-cycle'){state.cycle=Number(el.dataset.cycle);state.inspectIndex=null;remember();render();}
     else if(a==='review-phase'){state.reviewPhase=el.dataset.phase==='preparation'?'preparation':'bear';state.inspectIndex=null;state.event=0;remember();render();}else if(a==='review-preparation'){state.reviewPhase='preparation';state.event=0;remember();await navigate('review');}else if(a==='review-cycle'){state.reviewPhase='bear';state.cycle=Number(el.dataset.cycle);state.event=0;remember();await navigate('review');}
-    else if(a==='event'){const i=Number(el.dataset.index);if(route()==='simulation'){const ev=eventText(cycleData().events[i]);await modal(ev.title,`<p>${ev.action}</p><p class="fine" style="margin-top:18px">${t('Signal','판단')} ${ev.signal_at} · ${ev.kind==='wait'?t('No execution','체결 없음'):t('Simulated execution ','모의 체결 ')+ev.at}</p>`);}else chooseEvent(i);}
-    else if(a==='event-info'){const ev=eventText(cycleData().events.find(x=>x.id===el.dataset.id));if(ev)await modal(ev.title,`<p>${ev.action}</p>`);}
+    else if(a==='event'){const i=Number(el.dataset.index);if(route()==='simulation')await responseDetails(responseRecords(cycleData())[i]);else chooseEvent(i);}
+    else if(a==='response-info'){const root=state.run.cycles[state.cycle],d=el.dataset.phase==='preparation'&&root.preparation?root.preparation:root;await responseDetails(responseRecords(d).find(x=>x.id===el.dataset.id));}
+    else if(a==='event-info')await responseDetails(responseRecords(cycleData()).find(x=>x.id===el.dataset.id));
     else if(a==='previous-review')chooseEvent(state.event-1);else if(a==='next-review')chooseEvent(state.event+1);else if(a==='first-buy'){const i=cycleData().events.findIndex(x=>x.kind==='buy');if(i>=0)chooseEvent(i);else toast(t('No re-entry is included in this cycle’s highlights. Check all responses.','이 구간의 주요 장면에 재매수가 없어요. 전체 대응 내역을 확인해 주세요.'));}
     else if(a==='all-events')await allEvents();else if(a==='next-cycle-review'){state.cycle=(state.cycle+1)%3;state.reviewPhase='bear';state.event=0;remember();render();app.scrollTo({top:0,behavior:'smooth'});}
     else if(a==='results')await navigate('results');else if(a==='records')await navigate('records');

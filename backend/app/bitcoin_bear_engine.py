@@ -110,8 +110,16 @@ class BitcoinBearEngine:
             item=self.base.public_event(event,amount,run)
             item["phase"]=phase
             result["events"].append(item)
+        # 주요 장면과 별개로 이미 진행된 모든 대응을 명시적 공개 필드로 제공한다.
+        # 아직 체결되지 않은 미래 대응은 포함하지 않는다.
+        result["response_log"]=[]
+        known=[e for e in run["events"] if e["at_idx"]<=at]
+        for event in known:
+            item=self.base.public_event(event,amount,run)
+            item["phase"]=phase
+            result["response_log"].append(item)
         if include_history:
-            picks={0,at}|{e["at_idx"] for e in visible}
+            picks={0,at}|{e["at_idx"] for e in known}
             for n in range(min(220,at+1)):
                 picks.add(round(n*at/max(1,min(220,at+1)-1)))
             for key in ("hold","guard"):

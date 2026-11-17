@@ -56,6 +56,13 @@ def test_each_phase_reveals_only_known_rows_and_no_future_baseline(engine,elapse
     assert all(r['date']<=c['date'] for r in c['history'])
     assert all(0<=r['btc_weight']<=100 and 0<=r['cash']<=r['guard']+.01 for r in c['history'])
     assert all(e['at']<=c['date'] for e in c['events'])
+    for phase in (c,c.get('preparation')):
+        if not phase:continue
+        source=engine.runs[active][phase['phase']]['events']
+        expected=[e['id'] for e in source if e['at']<=phase['date']]
+        assert [e['id'] for e in phase['response_log']]==expected
+        assert all(e['at']<=phase['date'] and e['signal_at']<=e['at'] for e in phase['response_log'])
+        assert {e['at'] for e in phase['response_log']}<={r['date'] for r in phase['history']}
     if c['phase']=='preparation':
         assert 'preparation' not in c and 'frozen_allocation' not in c['metrics']
     else:
@@ -63,6 +70,7 @@ def test_each_phase_reveals_only_known_rows_and_no_future_baseline(engine,elapse
         assert not c['preparation'].get('all_events')
     for future in public['cycles'][active+1:]:
         assert not future['history'] and not future['events'] and 'metrics' not in future and 'preparation' not in future
+        assert not future.get('response_log')
     text=json.dumps(public)
     for forbidden in ('all_events','full_cycle_context','quantity_internal','visitor_hash','upper','lower','https://'):
         assert forbidden not in text
@@ -73,6 +81,25 @@ def test_future_market_changes_do_not_affect_visible_preparation(engine):
     changed=[replace(c,opened=c.opened*3,high=c.high*3,low=c.low*3,close=c.close*3) if c.day>=cutoff else c for c in engine.base.candles]
     other=BitcoinBearEngine(BitcoinEngine(changed))
     assert engine.public(state(4,'running'))==other.public(state(4,'running'))
+
+
+def test_live_activity_keeps_all_known_responses_and_preparation_history(engine):
+    public=engine.public(state(50,'paused'))
+    current=public['cycles'][0]
+    assert current['phase']=='bear'
+    prep=current['preparation']
+    assert len(prep['response_log'])==len(engine.runs[0]['preparation']['events'])>len(prep['events'])
+    assert not prep.get('all_events')
+    allowed={'id','kind','at','signal_at','stage','position','title','signal','action','after',
+             'btc_weight','fee','trade_value','cash_before','cash_after','value_before','value_after',
+             'hold_value','guard_value','phase'}
+    for phase in (prep,current):
+        for e in phase['response_log']:
+            assert set(e)<=allowed
+    final=engine.public(state())
+    for c in final['cycles']:
+        for phase in (c,c['preparation']):
+            assert phase['response_log']==phase['all_events']
 
 
 def test_frozen_allocation_baseline_and_sampling_are_reconciled(engine):

@@ -1,8 +1,10 @@
 import {t,money,cycleName,typeLabel,eventText} from './i18n';
 
+export const responseRecords=d=>d?.response_log??d?.all_events??d?.events??[];
+export const responseFeedRecords=d=>[...(d.preparation?responseRecords(d.preparation):[]),...responseRecords(d)];
+
 export function createDashboardViews({state,chart,tabs,percent,signed,escape,cycleData,missing,mailPanel}){
  const bear=c=>c?.scenario_kind==='bear';
- const cashMode=c=>c?.phase==='preparation'&&c.history?.every(p=>Number.isFinite(p.btc_weight));
  const scene=()=>cycleData()?.events[state.event];
  const title=(text,action,label)=>`<div class="workspace-heading"><h1>${text}</h1><button class="quiet-button" data-action="${action}">${label}</button></div>`;
  function selectedPoint(d,review=false){
@@ -12,39 +14,45 @@ export function createDashboardViews({state,chart,tabs,percent,signed,escape,cyc
  }
  function readout(d,{review=false}={}){
   const point=selectedPoint(d,review),m=d.metrics;
-  if(cashMode(d)){
-   const btc=point?.btc_weight??m.guard_btc_weight;
-   return `<div class="data-readout allocation-readout"><div class="account-stat"><span><i class="series-dot cash"></i>${t('Cash prepared','확보한 현금 비중')}</span><strong>${(100-btc).toFixed(1)}<small>%</small></strong></div><div class="account-stat"><span><i class="series-dot btc"></i>Bitcoin</span><strong>${btc.toFixed(1)}<small>%</small></strong></div></div>`;
-  }
   const h=point?.hold??m.hold.value,g=point?.guard??m.guard.value;
   const ret=v=>(v/state.run.amount-1)*100;
   return `<div class="data-readout"><div class="account-stat"><span><i class="series-dot hold"></i>${t('Buy & hold','단순 보유')}</span><strong>${money(h)}</strong><small class="${ret(h)<0?'negative':'positive'}">${percent(ret(h))}</small></div><div class="account-stat"><span><i class="series-dot guard"></i>Risk Guard</span><strong>${money(g)}</strong><small class="${ret(g)<0?'negative':'positive'}">${percent(ret(g))}</small></div></div>`;
  }
- function plotLegend(d){return cashMode(d)?`<div class="plot-legend"><span><i class="series-dot cash"></i>${t('Cash','현금')}</span><span><i class="series-dot btc"></i>Bitcoin</span><small>0–100%</small></div>`:`<div class="plot-legend"><span><i class="series-dot hold"></i>${t('Buy & hold','단순 보유')}</span><span><i class="series-dot guard"></i>Risk Guard</span><small>${t('Assets','평가액')}</small></div>`;}
+ function allocation(d,review=false){
+  const selected=selectedPoint(d,review),row=selected?d.history?.find(p=>p.date===selected.date):d.history?.at(-1);
+  if(!Number.isFinite(row?.btc_weight))return '';
+  return `<div class="guard-allocation"><span>Risk Guard ${t('mix','보유 비중')}</span><b>BTC ${row.btc_weight.toFixed(1)}%</b><b>${t('Cash','현금')} ${(100-row.btc_weight).toFixed(1)}%</b></div>`;
+ }
+ function plotLegend(){return `<div class="plot-legend"><span><i class="series-dot hold"></i>${t('Buy & hold','단순 보유')}</span><span><i class="series-dot guard"></i>Risk Guard</span><small>${t('Assets','평가액')}</small></div>`;}
  function dateLine(d,review=false){
   const point=selectedPoint(d,review),date=point?.date||d.date;
   return `<div class="chart-dateline"><time>${date}</time><span>${review?t('Selected response','선택한 대응'):point?t('Selected daily close','선택일 종가'):state.run.status==='running'?t('Playing','자동 재생 중'):t('Daily close','일봉 종가 기준')}</span></div>`;
  }
  function plot(d,{review=false,scrub=true}={}){
   const rows=d.history||[],index=Number.isInteger(state.inspectIndex)?Math.min(rows.length-1,state.inspectIndex):rows.length-1;
-  return `<section class="data-chart" aria-label="${t('Asset chart and date inspection','차트와 날짜 탐색')}"><div data-chart-readout>${dateLine(d,review)}${readout(d,{review})}</div><div class="chart-frame" data-responsive-chart data-cycle="${state.cycle}" data-markers="${review}" data-mode="${cashMode(d)?'cash':'assets'}">${chart(state.cycle,{markers:review,mode:cashMode(d)?'cash':'assets'})}</div>${plotLegend(d)}${scrub&&!review&&rows.length>1?`<label class="scrubber-label"><span>${t('Explore dates','날짜별 살펴보기')}</span><span>${state.run.status==='running'?t('Pause to explore','일시정지 후 탐색'):t('Slide to inspect','좌우로 움직여 확인')}</span><input class="chart-scrubber" type="range" min="0" max="${rows.length-1}" value="${Math.max(0,index)}" step="1" data-chart-scrub aria-label="${t('Inspect daily asset values','날짜별 자산 확인')}" ${state.run.status==='running'?'disabled':''}></label>`:''}</section>`;
+  const markers=review||state.run.status!=='finished';
+  return `<section class="data-chart" aria-label="${t('Asset chart and date inspection','차트와 날짜 탐색')}"><div data-chart-readout>${dateLine(d,review)}${readout(d,{review})}${allocation(d,review)}</div><div class="chart-frame" data-responsive-chart data-cycle="${state.cycle}" data-markers="${markers}" data-mode="assets">${chart(state.cycle,{markers,mode:'assets'})}</div>${plotLegend()}${scrub&&!review&&rows.length>1?`<label class="scrubber-label"><span>${t('Explore dates','날짜별 살펴보기')}</span><span>${state.run.status==='running'?t('Pause to explore','일시정지 후 탐색'):t('Slide to inspect','좌우로 움직여 확인')}</span><input class="chart-scrubber" type="range" min="0" max="${rows.length-1}" value="${Math.max(0,index)}" step="1" data-chart-scrub aria-label="${t('Inspect daily asset values','날짜별 자산 확인')}" ${state.run.status==='running'?'disabled':''}></label>`:''}</section>`;
  }
  function phaseBar(d){
   if(!bear(d))return `<div class="compact-phase">${t('Original full-cycle record','이전 전체 사이클 기록')}</div>`;
   const pre=d.phase==='preparation';
-  return `<details class="phase-disclosure" data-detail-key="phase"><summary><span class="phase-chip ${pre?'preparation':'bear'}">${pre?'01':'02'} ${pre?t('Prepare cash','현금 확보'):t('Bear market','하락장 비교')}</span><span>${pre?t('Before the comparison','본 비교 전 준비 과정'):t('Equal starting value','동일 금액 기준 비교')}</span><i>ⓘ</i></summary><p>${pre?t('Replay of the original strategy. The chart shows Bitcoin and cash weights. The following decline compares both accounts at an equal starting value.','원래 전략의 사전 운용을 재생해요. 차트는 BTC·현금 비중이며, 다음 하락장에서는 두 계좌를 같은 시작 금액으로 비교해요.'):t(`Each account is rebased to ${money(state.run.amount)} at the first close. The guard keeps its earlier cash mix. This is not a fresh 100% Bitcoin purchase.`,`하락 시작 종가에서 각 계좌를 ${money(state.run.amount)} 기준으로 환산해요. 가드는 이전 현금 비중을 유지하며, BTC 100%로 새로 매수한 결과가 아니에요.`)}</p></details>`;
+  return `<details class="phase-disclosure" data-detail-key="phase"><summary><span class="phase-chip ${pre?'preparation':'bear'}">${pre?'01':'02'} ${pre?t('Before the decline','하락 전 운용'):t('Bear market','하락장 비교')}</span><span>${pre?t('Assets from the original start','입력금으로 시작한 사전 운용 자산'):t('Equal starting value','동일 금액 기준 비교')}</span><i>ⓘ</i></summary><p>${pre?t('The chart compares both account values during the original preparation period. Cash is part of the Risk Guard balance. At the following bear-market start, both accounts are separately rebased to the input capital; earlier gains are not carried into that comparison.','사전 운용에서도 두 계좌의 평가액을 비교해요. 현금은 리스크 가드 자산에 포함돼요. 다음 하락장 시작에는 각 계좌를 입력금으로 따로 환산하며, 이전 수익은 하락장 비교에 합산하지 않아요.'):t(`Each account is rebased to ${money(state.run.amount)} at the first close. The guard keeps its earlier cash mix. This is not a fresh 100% Bitcoin purchase.`,`하락 시작 종가에서 각 계좌를 ${money(state.run.amount)} 기준으로 환산해요. 가드는 이전 현금 비중을 유지하며, BTC 100%로 새로 매수한 결과가 아니에요.`)}</p></details>`;
  }
  function player(){
   const run=state.run;
   return `<section class="player-panel" aria-label="${t('Playback controls','재생 조작')}"><div class="player-progress"><progress data-run-progress max="300" value="${run.elapsed}" aria-label="${t('Overall playback progress','전체 재생 진행')}"></progress><span data-run-progress-label>${Math.floor(run.elapsed/3)}%</span></div><div class="player-buttons"><button class="player-toggle" data-action="play" aria-label="${run.status==='running'?t('Pause playback','재생 일시정지'):t('Play','재생 시작')}" ${run.status==='finished'?'disabled':''}>${run.status==='running'?'Ⅱ':'▶'}</button><div class="speed-controls" role="group" aria-label="${t('Playback speed','재생 속도')}">${[1,4,8].map(n=>`<button data-action="speed" data-speed="${n}" aria-pressed="${run.speed===n}" class="${run.speed===n?'active':''}">${n}×</button>`).join('')}</div><button class="next-scene-button" data-action="next-event" ${run.status==='finished'?'disabled':''}>${t('Next response','다음 대응')} →</button></div></section>`;
  }
  function liveContent(d,event){
-  const e=eventText(event);
-  return `${phaseBar(d)}${plot(d)}<div class="latest-response"><span class="response-indicator"></span><span>${e?`${typeLabel(e.kind)} · ${e.at}`:t('Starting with the existing position','현재 보유 비중으로 시작')}</span>${e?`<button data-action="event-info" data-id="${e.id}" aria-label="${t('Response details','대응 자세히 보기')}">↗</button>`:''}</div>`;
+  return `${phaseBar(d)}${plot(d)}`;
+ }
+ function responseLog(root){
+  const events=responseFeedRecords(root).reverse();
+  const row=e=>`<button class="response-record" data-action="response-info" data-id="${escape(e.id)}" data-phase="${e.phase||root.phase||'bear'}"><span class="response-record-top"><b class="response-kind ${e.kind}">${typeLabel(e.kind)}</b><time>${e.at}</time><i>↗</i></span><span class="response-record-main">${e.kind==='wait'?t('No order · position maintained','주문 없이 기존 비중 유지'):`${t('Trade value','거래금액')} <b>${money(e.trade_value)}</b>`}</span><span class="response-record-cash">${t('Cash after','대응 후 현금')} <b>${money(e.cash_after)}</b> · BTC ${e.btc_weight.toFixed(1)}%</span><span class="response-record-timing">${t('Signal','판단')} ${e.signal_at} → ${e.kind==='wait'?t('Wait','보류'):t('Next-open fill','다음 시가 체결')} ${e.at}${root.preparation?` · ${e.phase==='preparation'?t('Before decline','하락 전'):t('Bear market','하락장')}`:''}</span></button>`;
+  return `<div class="response-feed-heading"><h2>${t('Risk Guard activity','리스크 가드 대응 기록')}</h2><span>${events.length} ${t('responses','건')}</span></div><p class="response-feed-note">${t('Only responses reached in playback are recorded. Tap for details.','진행된 시점까지 차곡차곡 기록해요. 누르면 상세 내역을 볼 수 있어요.')}</p>${events.length?events.slice(0,3).map(row).join(''):`<p class="response-feed-empty">${t('No response yet. Confirmed actions will appear here as playback advances.','아직 대응이 없어요. 재생 중 신호가 확인되면 기록이 여기에 추가돼요.')}</p>`}${events.length>3?`<details class="data-details response-history" data-detail-key="response-history-${state.cycle}"><summary>${t('Earlier responses','이전 대응 기록')} (${events.length-3})<span>＋</span></summary>${events.slice(3).map(row).join('')}</details>`:''}`;
  }
  function simulation(){
   if(!state.run)return missing();const d=state.run.cycles[state.cycle];if(!d?.metrics)return missing();
-  return `<div class="page workspace simulation-workspace">${title(t('Market replay','시장 재생'),'finish',t('See results ↗','결과 보기 ↗'))}${tabs('sim-cycle')}<div class="dashboard-grid"><section class="visual-panel"><div id="live-content">${liveContent(d,d.events.at(-1))}</div>${player()}</section><aside class="context-panel"><section class="workspace-note"><h2>${t('What are we comparing?','어떤 차이를 볼까요?')}</h2><p>${t('Watch cash preparation, then compare the asset losses during the selected bear period.','현금을 확보하는 과정을 본 뒤, 하락 구간에서 두 계좌에 남는 자산을 비교해요.')}</p><button class="text-link" data-action="method">${t('Calculation basis','비교 기준 확인')} ↗</button></section><p class="scope-caption">${t('Historical periods selected retrospectively. No real trades.','사후 선정한 과거 구간 · 실제 거래 없음')}</p></aside></div></div>`;
+  return `<div class="page workspace simulation-workspace">${title(t('Market replay','시장 재생'),'finish',t('See results ↗','결과 보기 ↗'))}${tabs('sim-cycle')}<div class="dashboard-grid"><section class="visual-panel"><div id="live-content">${liveContent(d)}</div>${player()}</section><aside class="context-panel response-feed" id="response-log">${responseLog(d)}</aside></div></div>`;
  }
  function resultMetrics(d){
   const m=d.metrics;
@@ -83,5 +91,5 @@ export function createDashboardViews({state,chart,tabs,percent,signed,escape,cyc
   if(!e)return missing(t('No response scenes in this period','이 구간에는 대응 장면이 없어요'));
   return `<div class="page workspace review-workspace">${title(t('Response review','대응 복기'),'results',t('Results','결과'))}${tabs('review-cycle')}${root.preparation?`<div class="review-phase-tabs" role="group" aria-label="${t('Review phase','복기 구간')}">${[['preparation',t('Cash preparation','현금 확보')],['bear',t('Bear market','하락장 대응')]].map(([key,label])=>`<button data-action="review-phase" data-phase="${key}" aria-pressed="${state.reviewPhase===key}" class="${state.reviewPhase===key?'active':''}">${label}</button>`).join('')}</div>`:''}<div class="dashboard-grid review-grid"><section class="visual-panel review-visual">${plot(d,{review:true,scrub:false})}<div class="review-timeline" role="group" aria-label="${t('Response timeline','대응 장면 목록')}">${events.map((ev,i)=>`<button data-action="event" data-index="${i}" aria-pressed="${state.event===i}" class="${state.event===i?'active':''}"><span>${String(i+1).padStart(2,'0')}</span><b>${typeLabel(ev.kind)}</b><small>${ev.at.slice(2)}</small></button>`).join('')}</div><p class="scope-caption">${state.reviewPhase==='preparation'&&root.preparation?t('Original preparation mix, before the equal-value comparison.','동일 금액 비교 전, 사전 운용의 현금·BTC 비중이에요.'):t('Same starting comparison value. Earlier cash is carried forward.','같은 시작 비교 금액 기준이며 이전 현금을 이어받아요.')}</p></section><aside class="context-panel scene-panel">${sceneCard(d,e)}<button class="method-link" data-action="all-events">${t('All simulated responses','전체 모의 대응 내역')} (${d.all_events.length}) ↗</button><p class="scope-caption">${t('The chart highlights selected and representative responses. All scenes remain in the timeline. The gap includes market changes and multiple trades, not one action alone.','차트에는 선택·대표 대응만 표시하며 전체 장면은 목록에서 볼 수 있어요. 자산 차이에는 시장 변화와 여러 매매가 함께 반영돼요.')}</p></aside></div></div>`;
  }
- return {simulation,liveContent,results,review,chartReadout:(d,review=false)=>dateLine(d,review)+readout(d,{review})};
+ return {simulation,liveContent,responseLog,results,review,chartReadout:(d,review=false)=>dateLine(d,review)+readout(d,{review})+allocation(d,review)};
 }
