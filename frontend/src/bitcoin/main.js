@@ -5,7 +5,7 @@ import {renderAssetChart,chartGeometry} from './chartView';
 import {t,lang,setLanguage,setCycleMode,cycleName,money,typeLabel,eventText,errorText} from './i18n';
 import {createViews} from './views';
 import {responseRecords,responseFeedRecords} from './dashboardViews';
-import {chartRows,CHART_UNITS,playbackPosition} from './periodView';
+import {chartRows,CHART_UNITS} from './periodView';
 
 const app=document.getElementById('app');
 const LOGO='/assets/riskguard-logo.webp';
@@ -15,7 +15,7 @@ const cycles=[
   {name:'2차 사이클',period:'2021.11.08 - 2022.11.21'},
   {name:'3차 사이클',period:'2025.10.06 - 2026.02.05'},
 ];
-const state={config:null,contact:null,emailEditing:false,run:null,amountDraft:defaultCapital(lang()),amountEdited:false,reportEmailDraft:'',reportConsent:false,cycle:0,event:0,reviewPhase:'bear',chartUnit:'day',seekDraft:null,inspectIndex:null,phaseChanged:false,busy:false,records:[],error:'',booting:true};
+const state={config:null,contact:null,emailEditing:false,run:null,amountDraft:defaultCapital(lang()),amountEdited:false,reportEmailDraft:'',reportConsent:false,cycle:0,event:0,reviewPhase:'bear',chartUnit:'day',inspectIndex:null,phaseChanged:false,busy:false,records:[],error:'',booting:true};
 let pollTimer,pollPromise=null,pollFailures=0,lastRoute='',previousFocus=null,toastTimer,chartSerial=0;
 const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const signed=n=>(n>0?'+':'')+money(n);
@@ -32,14 +32,14 @@ async function api(path,body,keepalive=false){
   return data;
 }
 function remember(){if(!state.run)return;try{localStorage.setItem(LAST,state.run.id);sessionStorage.setItem('eru-btc-view-'+state.run.id,JSON.stringify({cycle:state.cycle,event:state.event,phase:state.reviewPhase}));}catch{}}
-function receive(run,{follow=false}={}){const prior=state.run?.cycles[state.cycle]?.phase;state.run=run;if(run.model_version!=='btc-bear-2')state.chartUnit='day';if(run.status==='running')state.inspectIndex=null;if(follow||state.cycle>run.current_cycle)state.cycle=run.view_cycle;state.phaseChanged=state.phaseChanged||Boolean(route()==='simulation'&&prior&&prior!==run.cycles[state.cycle]?.phase);state.event=Math.min(state.event,Math.max(0,(cycleData()?.events.length||1)-1));remember();}
+function receive(run,{follow=false}={}){const prior=state.run?.cycles[state.cycle]?.phase;state.run=run;if(run.status==='running')state.inspectIndex=null;if(follow||state.cycle>run.current_cycle)state.cycle=run.view_cycle;state.phaseChanged=state.phaseChanged||Boolean(route()==='simulation'&&prior&&prior!==run.cycles[state.cycle]?.phase);state.event=Math.min(state.event,Math.max(0,(cycleData()?.events.length||1)-1));remember();}
 function errorBox(){return state.error?`<div class="global-error" role="alert"><span>${escape(errorText(state.error))}</span><button data-action="retry">${t('Try again','다시 연결')}</button><button data-action="dismiss-error" aria-label="${t('Dismiss error','오류 닫기')}">×</button></div>`:'';}
 function chartData(index){return phaseData(state.run?.cycles[index]);}
 function chartHeight(width){return width>550?340:Math.max(215,Math.min(270,Math.round(innerHeight*.305)));}
 function chart(index,{mini=false,markers=false,mode='assets',width}={}){
   let data=chartData(index);width=width||Math.max(240,Math.min(1080,document.getElementById('app').clientWidth-32));
   if(data&&route()==='simulation')data={...data,events:responseRecords(data)};
-  if(data)data={...data,history:chartRows(data,state.chartUnit),chart_unit:state.chartUnit,maximum_value:Math.max(1,...(data.history||[]).flatMap(p=>[p.hold,p.guard]))};
+  if(data)data={...data,chart_unit:state.chartUnit};
   const selected=route()==='review'?state.event:markers&&state.inspectIndex===null?(data?.events.length||0)-1:null;
   return renderAssetChart(data||{}, {width,height:mini?100:chartHeight(width),mode,markers,selected,focusIndex:state.inspectIndex});
 }
@@ -52,7 +52,7 @@ function fitCharts(){
 function preserveDetails(){return [...app.querySelectorAll('details[open][data-detail-key]')].map(el=>el.dataset.detailKey);}
 function restoreDetails(keys){app.querySelectorAll('details[data-detail-key]').forEach(el=>{if(keys.includes(el.dataset.detailKey))el.open=true;});}
 function inspectChart(index){
- const d=cycleData(),rows=chartRows(d,state.chartUnit);if(!rows.length||state.run.status==='running')return;
+ const d=cycleData(),rows=chartRows(d);if(!rows.length||state.run.status==='running')return;
  state.inspectIndex=Math.max(0,Math.min(rows.length-1,index));
  app.querySelectorAll('[data-chart-readout]').forEach(el=>{el.innerHTML=chartReadout(d);});
  app.querySelectorAll('[data-chart-scrub]').forEach(el=>{el.value=state.inspectIndex;});fitCharts();
@@ -71,7 +71,7 @@ function chrome(){
   document.querySelector('meta[name="description"]').content=t('Follow cash preparation and compare Bitcoin buy-and-hold with Risk Guard across three historical declines.','현금 확보 과정과 대표 비트코인 하락장 세 구간의 자산 변화를 비교하세요.');
 }
 function render(){
-  clearTimeout(pollTimer);const page=route();const openDetails=page===lastRoute?preserveDetails():[];if(page!==lastRoute){state.inspectIndex=null;state.seekDraft=null;}setCycleMode(!['simulation','results','review'].includes(page)||state.run?.model_version==='btc-bear-2');chrome();document.body.dataset.view=page;document.querySelectorAll('[data-nav]').forEach(el=>{const yes=el.dataset.nav===page||(el.dataset.nav==='home'&&['amount','simulation'].includes(page))||(el.dataset.nav==='results'&&page==='review');el.classList.toggle('active',yes);if(yes)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');});
+  clearTimeout(pollTimer);const page=route();const openDetails=page===lastRoute?preserveDetails():[];if(page!==lastRoute)state.inspectIndex=null;setCycleMode(!['simulation','results','review'].includes(page)||state.run?.model_version==='btc-bear-2');chrome();document.body.dataset.view=page;document.querySelectorAll('[data-nav]').forEach(el=>{const yes=el.dataset.nav===page||(el.dataset.nav==='home'&&['amount','simulation'].includes(page))||(el.dataset.nav==='results'&&page==='review');el.classList.toggle('active',yes);if(yes)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');});
   if(state.booting){app.innerHTML=`<div class="page"><section class="empty-state"><div class="loading-ring"></div><h2>${t('Preparing your market','시장을 준비하고 있어요')}</h2><p>${t('Checking verified data and saved records.','검증된 데이터와 이전 기록을 확인해요.')}</p></section></div>`;return;}
   app.innerHTML=errorBox()+({home,email:emailSetup,amount,simulation,results,review,records:recordsPage,settings}[page])();app.className='screen-enter';restoreDetails(openDetails);fitCharts();
   const timeline=app.querySelector('.review-timeline'),selected=timeline?.querySelector('.active');if(selected)timeline.scrollLeft=selected.offsetLeft-timeline.offsetLeft-timeline.clientWidth/2+selected.clientWidth/2;
@@ -79,7 +79,7 @@ function render(){
   document.title=({home:t('Bitcoin Risk Guard','비트코인 리스크 가드'),email:t('Report email','보고서 이메일 설정'),amount:t('Your capital','내 투자금'),simulation:t('Live comparison','자동 비교'),results:t('Your results','비교 결과'),review:t('Response review','대응 복기'),records:t('Your records','내 기록'),settings:t('Settings','설정')}[page])+' · ERU AI';
   schedulePoll();
 }
-function schedulePoll(){clearTimeout(pollTimer);if(state.seekDraft===null&&((route()==='simulation'&&state.run?.status==='running')||(route()==='results'&&['scheduled','sending'].includes(state.run?.report_delivery?.status)))&&!document.hidden&&pollFailures<3)pollTimer=setTimeout(poll,1400);}
+function schedulePoll(){clearTimeout(pollTimer);if(((route()==='simulation'&&state.run?.status==='running')||(route()==='results'&&['scheduled','sending'].includes(state.run?.report_delivery?.status)))&&!document.hidden&&pollFailures<3)pollTimer=setTimeout(poll,1400);}
 async function poll(){
   if(state.busy||pollPromise||document.hidden){schedulePoll();return;}const sid=state.run?.id;if(!sid)return;
   pollPromise=(async()=>{
@@ -98,7 +98,7 @@ async function poll(){
       const log=document.getElementById('response-log');
       if(log&&d?.metrics){const key=d.phase+'|'+responseFeedRecords(d).map(e=>e.id).join('|');if(log.dataset.key!==key){log.innerHTML=responseLog(d);log.dataset.key=key;}}
       restoreDetails(details);fitCharts();
-      if(state.seekDraft===null){document.querySelectorAll('[data-run-progress]').forEach(el=>{el.value=g.elapsed;el.style.setProperty('--played',g.elapsed/3+'%');});document.querySelectorAll('[data-run-progress-label]').forEach(el=>el.textContent=Math.floor(g.elapsed/3)+'%');}
+      document.querySelectorAll('[data-run-progress]').forEach(el=>el.value=g.elapsed);document.querySelectorAll('[data-run-progress-label]').forEach(el=>el.textContent=Math.floor(g.elapsed/3)+'%');
       document.querySelectorAll('[data-playback-date]').forEach(el=>el.textContent=g.cycles[g.current_cycle].date);
       state.phaseChanged=false;
       document.querySelectorAll('[data-action="sim-cycle"]').forEach((b,i)=>{
@@ -108,11 +108,10 @@ async function poll(){
   })();
   await pollPromise;pollPromise=null;schedulePoll();
 }
-async function perform(fn){if(state.busy)return;state.seekDraft=null;state.busy=true;document.body.classList.add('is-busy');app.querySelectorAll('button,[data-playback-seek]').forEach(b=>b.disabled=true);clearTimeout(pollTimer);if(pollPromise)await pollPromise;try{await fn();state.error='';}catch(e){state.error=e.message;}finally{state.busy=false;document.body.classList.remove('is-busy');render();}}
-async function playback(action,speed,position){if(!state.run)return;const g=await api('/sessions/'+state.run.id+'/playback',{action,...(speed?{speed}:{}),...(Number.isFinite(position)?{position}:{})});if(action==='seek')state.inspectIndex=null;receive(g,{follow:true});if(g.status==='finished'&&action!=='pause')await navigate('results');else render();}
+async function perform(fn){if(state.busy)return;state.busy=true;document.body.classList.add('is-busy');app.querySelectorAll('button').forEach(b=>b.disabled=true);clearTimeout(pollTimer);if(pollPromise)await pollPromise;try{await fn();state.error='';}catch(e){state.error=e.message;}finally{state.busy=false;document.body.classList.remove('is-busy');render();}}
+async function playback(action,speed){if(!state.run)return;const g=await api('/sessions/'+state.run.id+'/playback',{action,...(speed?{speed}:{})});receive(g,{follow:true});if(g.status==='finished'&&action!=='pause')await navigate('results');else render();}
 async function navigate(page){
   clearTimeout(pollTimer);if(page!==route())state.inspectIndex=null;if(page!=='simulation'&&state.run?.status==='running'){const g=await api('/sessions/'+state.run.id+'/playback',{action:'pause'});receive(g);}
-  if(page!=='simulation'&&state.run?.read_only)receive(await api('/sessions/'+state.run.id));
   if(page==='records')state.records=(await api('/records')).records;
   if(location.hash!=='#'+page)history.pushState(null,'','#'+page);render();
 }
@@ -170,9 +169,7 @@ function closeSplash(){
   if(splashFocus?.isConnected&&!root.contains(splashFocus))splashFocus.focus({preventScroll:true});else app.focus({preventScroll:true});
   splashExitTimer=setTimeout(()=>{root.hidden=true;root.classList.remove('video-ready');root.innerHTML='';},300);
 }
-document.addEventListener('input',e=>{if(e.target.matches('[data-playback-seek]')){state.seekDraft=Number(e.target.value);clearTimeout(pollTimer);e.target.style.setProperty('--played',state.seekDraft/3+'%');app.querySelector('[data-run-progress-label]').textContent=Math.floor(state.seekDraft/3)+'%';return;}if(e.target.matches('[data-chart-scrub]')){inspectChart(Number(e.target.value));return;}if(e.target.id==='contact-email')state.reportEmailDraft=e.target.value;if(e.target.id==='contact-consent')state.reportConsent=e.target.checked;if(e.target.id==='amount-input'){state.amountEdited=true;const n=parseAmount(e.target.value,lang());if(n!==null)state.amountDraft=n;document.getElementById('amount-error').textContent='';}});
-document.addEventListener('change',async e=>{if(!e.target.matches('[data-playback-seek]'))return;const position=Number(e.target.value);state.seekDraft=null;await perform(()=>playback('seek',undefined,position));app.querySelector('[data-playback-seek]')?.focus({preventScroll:true});});
-document.addEventListener('pointercancel',e=>{if(e.target.matches('[data-playback-seek]')){state.seekDraft=null;render();}});
+document.addEventListener('input',e=>{if(e.target.matches('[data-chart-scrub]')){inspectChart(Number(e.target.value));return;}if(e.target.id==='contact-email')state.reportEmailDraft=e.target.value;if(e.target.id==='contact-consent')state.reportConsent=e.target.checked;if(e.target.id==='amount-input'){state.amountEdited=true;const n=parseAmount(e.target.value,lang());if(n!==null)state.amountDraft=n;document.getElementById('amount-error').textContent='';}});
 document.addEventListener('submit',async e=>{
   if(e.target.id==='contact-form'){
     e.preventDefault();if(!e.target.reportValidity())return;const edit=e.target.dataset.edit==='true';
@@ -185,10 +182,9 @@ document.addEventListener('submit',async e=>{
   state.amountDraft=n;await perform(async()=>{if(state.run?.status==='running')await api('/sessions/'+state.run.id+'/playback',{action:'pause'});const run=await api('/sessions',{amount:n.toFixed(2),locale:lang()});state.reportEmailDraft='';state.reportConsent=false;state.cycle=0;state.event=0;receive(run,{follow:true});await navigate('simulation');});
 });
 document.addEventListener('click',async e=>{
-  const plot=e.target.closest('.responsive-plot');if(plot&&!e.target.closest('[data-action]')&&route()!=='review'){
+  const plot=e.target.closest('.responsive-plot');if(plot&&!e.target.closest('[data-action]')&&route()==='results'){
     const d=cycleData(),box=plot.getBoundingClientRect(),g=chartGeometry(d,{width:plot.viewBox.baseVal.width,height:plot.viewBox.baseVal.height}),position=((e.clientX-box.left)*g.width/box.width-g.left)/g.plotWidth*100;
-    if(route()==='simulation'){const target=playbackPosition(state.cycle,d.phase,position,d.scenario_kind==='bear');await perform(()=>playback('seek',undefined,target));return;}
-    const rows=chartRows(d,state.chartUnit);let closest=0;rows.forEach((p,i)=>{if(Math.abs(p.position-position)<Math.abs(rows[closest].position-position))closest=i;});inspectChart(closest);return;
+    const rows=chartRows(d);let closest=0;rows.forEach((p,i)=>{if(Math.abs(p.position-position)<Math.abs(rows[closest].position-position))closest=i;});inspectChart(closest);return;
   }
 
   const link=e.target.closest('a[href^="#"]');if(link){e.preventDefault();await perform(()=>navigate(link.hash.slice(1)||'home'));return;}
@@ -196,11 +192,11 @@ document.addEventListener('click',async e=>{
   if(a==='skip-splash'){closeSplash();return;}if(a==='close-modal'){closeModal();return;}if(a==='dismiss-error'){state.error='';render();return;}
   if(a==='email-report'){document.getElementById('email-report')?.scrollIntoView({behavior:'smooth',block:'start'});return;}
   if(a==='language'){setLanguage(el.dataset.language);if(!state.amountEdited)state.amountDraft=defaultCapital(lang());render();return;}
-  if(a==='chart-unit'){if(CHART_UNITS.includes(el.dataset.unit)){state.chartUnit=el.dataset.unit;state.inspectIndex=null;render();}return;}
+  if(a==='chart-unit'){if(CHART_UNITS.includes(el.dataset.unit)){state.chartUnit=el.dataset.unit;render();app.querySelector(`[data-action="chart-unit"][data-unit="${state.chartUnit}"]`)?.focus({preventScroll:true});}return;}
   if(a==='preset'){state.amountEdited=true;state.amountDraft=Number(el.dataset.amount);document.getElementById('amount-input').value=inputAmount(state.amountDraft,lang());document.getElementById('amount-error').textContent='';app.querySelectorAll('[data-action="preset"]').forEach(x=>x.classList.toggle('selected',x===el));return;}
   await perform(async()=>{
     if(a==='edit-contact'){state.emailEditing=true;state.reportEmailDraft='';state.reportConsent=false;await navigate('settings');}else if(a==='cancel-contact'){state.emailEditing=false;state.reportEmailDraft='';state.reportConsent=false;render();}else if(a==='settings')await navigate('settings');else if(a==='back')await navigate(({amount:'home',simulation:'amount',review:'results',results:'home',records:'home',settings:'home'})[route()]||'home');else if(a==='begin')await navigate('amount');else if(a==='method')await method();else if(a==='flow')await flow();else if(a==='start-from-flow'){closeModal();await navigate('amount');}
-    else if(a==='play')await playback(state.run.status==='running'?'pause':'resume');else if(a==='speed')await playback('speed',Number(el.dataset.speed));else if(a==='next-event')await playback('next');else if(a==='finish'){toast(t('Finishing your comparison and preparing the email report…','비교를 마치고 이메일 보고서를 준비하고 있어요…'));await playback('finish');}else if(a==='retry-delivery')receive(await api('/sessions/'+state.run.id+'/delivery/retry',{}));else if(a==='resume'){await playback('resume');await navigate('simulation');}
+    else if(a==='play')await playback(state.run.status==='running'?'pause':'resume');else if(a==='speed')await playback('speed',Number(el.dataset.speed));else if(a==='finish'){toast(t('Finishing your comparison and preparing the email report…','비교를 마치고 이메일 보고서를 준비하고 있어요…'));await playback('finish');}else if(a==='retry-delivery')receive(await api('/sessions/'+state.run.id+'/delivery/retry',{}));else if(a==='resume'){await playback('resume');await navigate('simulation');}
     else if(a==='sim-cycle'){state.inspectIndex=null;state.cycle=Number(el.dataset.cycle);const g=await api('/sessions/'+state.run.id+'?view='+state.cycle);receive(g);render();}
     else if(a==='result-cycle'){state.cycle=Number(el.dataset.cycle);state.inspectIndex=null;remember();render();}
     else if(a==='review-phase'){state.reviewPhase=el.dataset.phase==='preparation'?'preparation':'bear';state.inspectIndex=null;state.event=0;remember();render();}else if(a==='review-preparation'){state.reviewPhase='preparation';state.event=0;remember();await navigate('review');}else if(a==='review-cycle'){state.reviewPhase='bear';state.cycle=Number(el.dataset.cycle);state.event=0;remember();await navigate('review');}
@@ -215,8 +211,8 @@ document.addEventListener('click',async e=>{
   });
 });
 document.addEventListener('keydown',e=>{const m=document.querySelector('.modal');if(m){if(e.key==='Escape'){e.preventDefault();closeModal();}else if(e.key==='Tab'){const items=[...m.querySelectorAll('button:not(:disabled),a[href],input')];if(e.shiftKey&&document.activeElement===items[0]){e.preventDefault();items.at(-1).focus();}else if(!e.shiftKey&&document.activeElement===items.at(-1)){e.preventDefault();items[0].focus();}}return;}if((e.key==='Enter'||e.key===' ')&&e.target.matches('.chart-marker')){e.preventDefault();e.target.dispatchEvent(new MouseEvent('click',{bubbles:true}));}});
-window.addEventListener('hashchange',async()=>{try{if(route()!=='simulation'&&state.run?.status==='running')receive(await api('/sessions/'+state.run.id+'/playback',{action:'pause'}));if(route()!=='simulation'&&state.run?.read_only)receive(await api('/sessions/'+state.run.id));if(route()==='records')state.records=(await api('/records')).records;}catch(e){state.error=e.message;}render();});
-document.addEventListener('visibilitychange',()=>{if(document.hidden&&state.run?.status==='running')api('/sessions/'+state.run.id+'/playback',{action:'pause'},true).then(receive).catch(()=>{});else if(!document.hidden&&route()==='simulation'&&state.run&&!state.run.read_only)perform(async()=>{receive(await api('/sessions/'+state.run.id+'?view='+state.cycle));render();});});
+window.addEventListener('hashchange',async()=>{try{if(route()!=='simulation'&&state.run?.status==='running')receive(await api('/sessions/'+state.run.id+'/playback',{action:'pause'}));if(route()==='records')state.records=(await api('/records')).records;}catch(e){state.error=e.message;}render();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&state.run?.status==='running')api('/sessions/'+state.run.id+'/playback',{action:'pause'},true).then(receive).catch(()=>{});else if(!document.hidden&&route()==='simulation'&&state.run)perform(async()=>{receive(await api('/sessions/'+state.run.id+'?view='+state.cycle));render();});});
 window.addEventListener('pagehide',()=>{if(state.run?.status==='running')api('/sessions/'+state.run.id+'/playback',{action:'pause'},true).catch(()=>{});});
 const chartObserver=new ResizeObserver(()=>{if(!state.booting)fitCharts();});chartObserver.observe(document.querySelector('.app-shell'));
 async function boot(){render();splash();try{state.config=await api('/config');state.contact=await api('/contact');if(!state.config.ready)state.error='검증된 비트코인 데이터를 준비하고 있어요. 잠시 후 다시 확인해 주세요.';let sid;try{sid=localStorage.getItem(LAST);}catch{}if(sid){try{let saved;try{saved=JSON.parse(sessionStorage.getItem('eru-btc-view-'+sid)||'null');}catch{}const g=await api('/sessions/'+sid);receive(g,{follow:true});if(saved&&Number.isInteger(saved.cycle)&&saved.cycle>=0&&saved.cycle<=g.current_cycle){state.cycle=saved.cycle;state.reviewPhase=saved.phase==='preparation'?'preparation':'bear';state.event=Number.isInteger(saved.event)?Math.min(Math.max(0,saved.event),Math.max(0,cycleData().events.length-1)):0;if(g.status!=='finished')receive(await api('/sessions/'+sid+'?view='+state.cycle));}}catch(e){if(e.status!==404)state.error=e.message;}}if(route()==='records')state.records=(await api('/records')).records;}catch(e){state.error=e.message;}state.booting=false;if(state.run)remember();if(state.contact?.registered&&location.hash==='#email')history.replaceState(null,'','#amount');render();}

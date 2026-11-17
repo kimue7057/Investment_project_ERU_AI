@@ -10,7 +10,7 @@ export function createDashboardViews({state,chart,tabs,percent,signed,escape,cyc
  const title=(text,action,label)=>`<div class="workspace-heading"><h1>${text}</h1><button class="quiet-button" data-action="${action}">${label}</button></div>`;
  function selectedPoint(d,review=false){
   if(review&&scene())return {date:scene().at,hold:scene().hold_value,guard:scene().guard_value,btc_weight:scene().btc_weight};
-  const rows=chartRows(d,state.chartUnit);
+  const rows=chartRows(d);
   return Number.isInteger(state.inspectIndex)?rows[Math.min(rows.length-1,Math.max(0,state.inspectIndex))]:null;
  }
  function readout(d,{review=false}={}){
@@ -30,14 +30,13 @@ export function createDashboardViews({state,chart,tabs,percent,signed,escape,cyc
   return `<div class="chart-dateline"><time>${date}</time><span>${review?t('Selected response','선택한 대응'):point?t('Selected daily close','선택일 종가'):state.run.status==='running'?t('Playing','자동 재생 중'):t('Daily close','일봉 종가 기준')}</span></div>`;
  }
  function plot(d,{review=false,scrub=true}={}){
-  const rows=chartRows(d,state.chartUnit),index=Number.isInteger(state.inspectIndex)?Math.min(rows.length-1,state.inspectIndex):rows.length-1;
+  const rows=chartRows(d),index=Number.isInteger(state.inspectIndex)?Math.min(rows.length-1,state.inspectIndex):rows.length-1;
   const markers=review||state.run.status!=='finished';
   const unit=state.chartUnit||'day',labels={day:t('Day','일'),week:t('Week','주'),month:t('Month','월'),year:t('Year','년')};
-  const toolbar=`<div class="chart-unit-bar"><span>${t('Interval','표시 단위')}</span><div role="group" aria-label="${t('Chart interval','차트 표시 단위')}">${CHART_UNITS.map(key=>`<button data-action="chart-unit" data-unit="${key}" aria-pressed="${key===unit}" class="${key===unit?'active':''}" ${key!=='day'&&!d.period_history?.[key]?'disabled':''}>${labels[key]}</button>`).join('')}</div></div>`;
-  const note=unit==='day'?'':`<p class="chart-period-note">${t('Period-end published closes. Responses use their actual daily values.','기간별 마지막 공개 종가 · 대응 표시는 실제 해당일 기준')}</p>`;
+  const toolbar=`<div class="chart-unit-bar"><span>${t('Time axis','시간축 단위')}</span><div role="group" aria-label="${t('Time axis unit','하단 시간축 단위')}">${CHART_UNITS.map(key=>`<button data-action="chart-unit" data-unit="${key}" aria-pressed="${key===unit}" class="${key===unit?'active':''}">${labels[key]}</button>`).join('')}</div></div>`;
   return `<section class="data-chart" aria-label="${t('Asset chart and date inspection','차트와 날짜 탐색')}">
-   <div data-chart-readout>${dateLine(d,review)}${readout(d,{review})}${allocation(d,review)}</div>${toolbar}
-   <div class="chart-frame" data-responsive-chart data-cycle="${state.cycle}" data-markers="${markers}" data-mode="assets">${chart(state.cycle,{markers,mode:'assets'})}</div>${plotLegend()}${note}
+   <div data-chart-readout>${dateLine(d,review)}${readout(d,{review})}${allocation(d,review)}</div>
+   <div class="chart-frame" data-responsive-chart data-cycle="${state.cycle}" data-markers="${markers}" data-mode="assets">${chart(state.cycle,{markers,mode:'assets'})}</div>${toolbar}${plotLegend()}
    ${scrub&&!review&&rows.length>1&&state.run.status!=='running'?`<label class="scrubber-label"><span>${t('Explore dates','날짜별 살펴보기')}</span><span>${t('Slide to inspect','좌우로 움직여 확인')}</span><input class="chart-scrubber" type="range" min="0" max="${rows.length-1}" value="${Math.max(0,index)}" step="1" data-chart-scrub aria-label="${t('Inspect asset values','날짜별 자산 확인')}"></label>`:''}
    </section>`;
  }
@@ -48,11 +47,11 @@ export function createDashboardViews({state,chart,tabs,percent,signed,escape,cyc
  }
  function player(){
   const run=state.run;
-  const inactive=run.status==='finished'||run.read_only;
+  const inactive=run.status==='finished';
   return `<section class="player-panel" aria-label="${t('Playback controls','재생 조작')}">
-   <div class="playback-date"><time data-playback-date>${run.cycles[run.current_cycle].date}</time><span>${run.read_only?t('Completed record · inspect only','완료 기록 · 시점 탐색'):t('Tap or drag to move','누르거나 끌어서 시점 이동')}</span></div>
-   <div class="player-progress"><input class="playback-seek" type="range" min="0" max="300" step="0.1" value="${run.elapsed}" data-run-progress data-playback-seek aria-label="${t('Move playback position','재생 시점 이동')}" style="--played:${run.elapsed/3}%"><span data-run-progress-label>${Math.floor(run.elapsed/3)}%</span></div>
-   <div class="player-buttons"><button class="player-toggle" data-action="play" aria-label="${run.status==='running'?t('Pause playback','재생 일시정지'):t('Play','재생 시작')}" ${inactive?'disabled':''}>${run.status==='running'?'Ⅱ':'▶'}</button><div class="speed-controls" role="group" aria-label="${t('Playback speed','재생 속도')}">${[1,4,8].map(n=>`<button data-action="speed" data-speed="${n}" aria-pressed="${run.speed===n}" class="${run.speed===n?'active':''}" ${inactive?'disabled':''}>${n}×</button>`).join('')}</div><button class="next-scene-button" data-action="next-event" ${inactive?'disabled':''}>${t('Next response','다음 대응')} →</button></div>
+   <div class="playback-date"><time data-playback-date>${run.cycles[run.current_cycle].date}</time><span>${t('Playback progress','자동 재생 진행')}</span></div>
+   <div class="player-progress"><progress max="300" value="${run.elapsed}" data-run-progress aria-label="${t('Overall playback progress','전체 재생 진행')}"></progress><span data-run-progress-label>${Math.floor(run.elapsed/3)}%</span></div>
+   <div class="player-buttons"><button class="player-toggle" data-action="play" aria-label="${run.status==='running'?t('Pause playback','재생 일시정지'):t('Play','재생 시작')}" ${inactive?'disabled':''}>${run.status==='running'?'Ⅱ':'▶'}</button><div class="speed-controls" role="group" aria-label="${t('Playback speed','재생 속도')}">${[1,4,8].map(n=>`<button data-action="speed" data-speed="${n}" aria-pressed="${run.speed===n}" class="${run.speed===n?'active':''}" ${inactive?'disabled':''}>${n}×</button>`).join('')}</div></div>
    </section>`;
  }
  function liveContent(d,event){

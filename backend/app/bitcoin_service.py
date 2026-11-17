@@ -13,7 +13,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .bitcoin_engine import BitcoinEngine, MODEL_VERSION as LEGACY_VERSION
 from .bitcoin_bear_engine import BitcoinBearEngine, SCENARIOS, MODEL_VERSION
@@ -30,15 +30,8 @@ class Strict(BaseModel):
 
 
 class Playback(Strict):
-    action: Literal["pause","resume","speed","next","finish","seek"]
+    action: Literal["pause","resume","speed","next","finish"]
     speed: Literal[1,4,8]|None=None
-    position: float|None=Field(default=None,ge=0,le=300)
-
-    @model_validator(mode="after")
-    def seek_position(self):
-        if (self.action=="seek")!=(self.position is not None):
-            raise ValueError("재생 위치는 seek 요청에만 필요합니다.")
-        return self
 
 
 class SendReport(Strict):
@@ -308,9 +301,6 @@ class BitcoinService:
         def apply(s):
             if s["status"]=="finished":return
             if body.action=="finish":s.update(elapsed=300.0,status="finished")
-            elif body.action=="seek":
-                # 위치만 바꾼다. 불변 운용 장부·주문·비교 원금은 다시 작성하지 않는다.
-                s.update(elapsed=body.position,status="finished" if body.position>=300 else "paused")
             elif body.action=="pause":s["status"]="paused"
             elif body.action=="resume":s["status"]="running"
             elif body.action=="speed":
@@ -327,13 +317,6 @@ class BitcoinService:
                 # 보이지 않는 일을 막는다. 한 일봉보다 훨씬 작은 여유만 둔다.
                 s["elapsed"]=min((cycle+1)*100,cycle*100+next_position+1e-7) if next_position is not None else (cycle+1)*100
                 s["status"]="finished" if s["elapsed"]>=300 else "paused"
-        if body.action=="seek":
-            state=self.change(request,sid,apply,raw=True)
-            if state["status"]=="finished" and body.position<300:
-                # 완료 기록은 되돌리지 않고, 선택 시점의 읽기 전용 화면만 반환한다.
-                preview={**state,"elapsed":body.position,"status":"paused"}
-                return {**self.public(preview),"read_only":True}
-            return self.public(state)
         return self.change(request,sid,apply)
 
     def list(self,request):

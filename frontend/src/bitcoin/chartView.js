@@ -1,4 +1,5 @@
 import {t,money,typeLabel} from './i18n';
+import {timeAxisTicks} from './periodView';
 
 export function representativeIndices(events,selected=null){
  const picks=new Set();
@@ -36,6 +37,6 @@ export function renderAssetChart(data,{width=340,height=250,mode='assets',marker
  }).join(''):'';
  const ending=rows.length===1?`<circle cx="${x(first.position)}" cy="${y(value(first,'guard'))}" r="4" fill="${mode==='cash'?'#edc17d':'#4bd6ad'}"/>`:'';
  const cashArea=mode==='cash'?`<path d="${path('guard')} L${x(last.position)},${top+plotHeight} L${x(first.position)},${top+plotHeight}Z" fill="#edc17d" opacity=".12"/>`:'';
- const axisDate=date=>data.chart_unit==='year'?date.slice(0,4):data.chart_unit==='day'?date.replaceAll('-','.'):date.slice(0,7).replace('-','.');
- return `<svg class="asset-chart responsive-plot ${mode==='cash'?'cash-plot':''}" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="${markers?'group':'img'}" aria-label="${mode==='cash'?t('Bitcoin and cash weights','비트코인과 현금 비중 변화'):t('Buy-and-hold and Risk Guard asset changes','단순 보유와 리스크 가드 자산 변화')}">${grid}${cashArea}<path class="plot-line plot-hold" d="${path('hold')}"/><path class="plot-line plot-guard" d="${path('guard')}"/>${cursorLine}${dots}${ending}<text class="plot-axis" x="${left}" y="${height-6}">${axisDate(data.start)}</text><text class="plot-axis" x="${width-right}" y="${height-6}" text-anchor="end">${axisDate(data.end)}</text></svg>`;
+ const axis=timeAxisTicks(data.start,data.end,data.chart_unit||'day',plotWidth).map(tick=>`<g class="time-axis-tick"><line class="plot-grid" x1="${x(tick.position)}" x2="${x(tick.position)}" y1="${top+plotHeight}" y2="${top+plotHeight+4}"/><text class="plot-axis" x="${x(tick.position)}" y="${height-6}" text-anchor="middle">${tick.label}${data.chart_unit==='week'?t(' wk','주'):''}</text></g>`).join('');
+ return `<svg class="asset-chart responsive-plot ${mode==='cash'?'cash-plot':''}" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="${markers?'group':'img'}" aria-label="${mode==='cash'?t('Bitcoin and cash weights','비트코인과 현금 비중 변화'):t('Buy-and-hold and Risk Guard asset changes','단순 보유와 리스크 가드 자산 변화')}">${grid}${cashArea}<path class="plot-line plot-hold" d="${path('hold')}"/><path class="plot-line plot-guard" d="${path('guard')}"/>${cursorLine}${dots}${ending}${axis}</svg>`;
 }

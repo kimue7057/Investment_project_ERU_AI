@@ -44,6 +44,21 @@ describe('date-specific account readouts',()=>{
   const html=views.chartReadout(d);
   expect(html).toContain('1억 원');expect(html).toContain('단순 보유');expect(html).toContain('선택일 종가');
  });
+ it('keeps the inspected date and balances when the time axis unit changes',()=>{
+  const {state,d,views}=fixture();state.inspectIndex=0;
+  const original=views.chartReadout(d);
+  for(const unit of ['day','week','month','year']){state.chartUnit=unit;expect(views.chartReadout(d)).toBe(original);}
+ });
+ it('places units below the chart and provides a non-interactive playback progress indicator',()=>{
+  const {state,d}=fixture();d.events=[];d.response_log=[];
+  Object.assign(state.run,{status:'running',cycles:[d],current_cycle:0,elapsed:10,speed:4});state.cycle=0;
+  const views=createDashboardViews({state,cycleData:()=>d,chart:()=>'<svg id="test-chart"></svg>',tabs:()=>'',escape:s=>String(s),percent:n=>n.toFixed(1)+'%'});
+  const html=views.simulation();
+  expect(html.indexOf('id="test-chart"')).toBeLessThan(html.indexOf('class="chart-unit-bar"'));
+  expect(html).toContain('<progress');expect(html).not.toContain('data-playback-seek');
+  expect(html).not.toContain('data-action="next-event"');
+  expect((html.match(/data-action="chart-unit"/g)||[])).toHaveLength(4);
+ });
 });
 
 describe('continuous response history',()=>{
