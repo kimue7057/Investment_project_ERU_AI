@@ -44,6 +44,7 @@ describe('persistent financial chart controller',()=>{
   expect(fake.series[1].setData).toHaveBeenCalledTimes(1);expect(fake.series[2].setData).toHaveBeenCalledTimes(1);
   expect(fake.series[2].setData.mock.calls[0][0].map(p=>p.value)).toEqual([100,85]);
   expect(fake.options.rightPriceScale.visible).toBe(true);expect(fake.options.timeScale.enableConflation).toBe(false);
+  expect(fake.options.layout.attributionLogo).toBe(false);expect(fake.options.layout.fontSize).toBe(14);
   expect(host.children[2].children.map(t=>t.textContent)).toEqual(['2022']);
  });
  it('looks up actual account balances at the crosshair without invoking playback or interpolating prices',()=>{

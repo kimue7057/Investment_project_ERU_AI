@@ -72,9 +72,10 @@ def chart_png(cycle,locale="ko",*,screen=False,reference=None):
     history=cycle.get("history",[])
     if not history:raise ValueError("A completed asset history is required")
     labels=Labels(locale);width,height=1440,650;left,right,top,bottom=220,50,65,140
+    muted="#d0d4dd" if screen else MUTED
     w=width-left-right;h=height-top-bottom
     image=Image.new("RGB",(width,height),BG);draw=ImageDraw.Draw(image)
-    font=ImageFont.truetype(str(FONT),38);small=ImageFont.truetype(str(FONT),32)
+    font=ImageFont.truetype(str(FONT),44 if screen else 38);small=ImageFont.truetype(str(FONT),38 if screen else 32)
     maximum=max(max(max(p["hold"],p["guard"]) for p in history),reference or 0)*1.12
     def x(position):return left+w*position/100
     def y(value):return top+h-value/maximum*h
@@ -82,11 +83,11 @@ def chart_png(cycle,locale="ko",*,screen=False,reference=None):
         yy=top+h*fraction
         for xx in range(left,width-right,16):draw.line((xx,yy,min(xx+7,width-right),yy),fill="#263348",width=2)
         text=_axis(maximum*(1-fraction),labels);box=draw.textbbox((0,0),text,font=font)
-        draw.text((left-22-(box[2]-box[0]),yy-22),text,font=font,fill=MUTED)
-    red,green=("#ff8476","#76aaff") if screen else (RED,GREEN)
+        draw.text((left-22-(box[2]-box[0]),yy-22),text,font=font,fill=muted)
+    red,green=("#cfd3de","#ffd17a") if screen else (RED,GREEN)
     if screen and reference:
         yy=y(reference)
-        for xx in range(left,width-right,20):draw.line((xx,yy,min(xx+12,width-right),yy),fill=GOLD,width=2)
+        for xx in range(left,width-right,20):draw.line((xx,yy,min(xx+12,width-right),yy),fill="#8f98a8",width=2)
     for key,color in (("hold",red),("guard",green)):
         points=[(x(p["position"]),y(p[key])) for p in history]
         if len(points)>1:draw.line(points,fill=color,width=5,joint="curve")
@@ -100,9 +101,9 @@ def chart_png(cycle,locale="ko",*,screen=False,reference=None):
         draw.ellipse((cx-30,cy-30,cx+30,cy+30),fill=GOLD)
         text=str(number);box=draw.textbbox((0,0),text,font=small)
         draw.text((cx-(box[2]-box[0])/2,cy-22),text,font=small,fill=BG)
-    draw.text((left,top+h+24),cycle["start"],font=small,fill=MUTED)
+    draw.text((left,top+h+24),cycle["start"],font=small,fill=muted)
     end=cycle["end"];box=draw.textbbox((0,0),end,font=small)
-    draw.text((width-right-(box[2]-box[0]),top+h+24),end,font=small,fill=MUTED)
+    draw.text((width-right-(box[2]-box[0]),top+h+24),end,font=small,fill=muted)
     draw.line((left,height-40,left+40,height-40),fill=red,width=5);draw.text((left+54,height-58),labels.t("Buy & hold","단순 보유"),font=font,fill=TEXT)
     draw.line((left+390,height-40,left+430,height-40),fill=green,width=5);draw.text((left+444,height-58),labels.t("Risk Guard","리스크 가드"),font=font,fill=TEXT)
     output=io.BytesIO();image.save(output,format="PNG",optimize=True);return output.getvalue()

@@ -21,9 +21,9 @@ export function createFinancialChart(host,{onInspect=()=>{},onRecord=()=>{},pale
  tooltip.append(tooltipDate,tooltipHold,tooltipGuard);host.append(tooltip);
  const axis=document.createElement('div');axis.className='financial-time-axis';axis.setAttribute('aria-hidden','true');host.append(axis);
  const chart=createChart(canvas,{
-  autoSize:true,layout:{background:{type:ColorType.Solid,color:'#0c1421'},textColor:'#aabbcf',fontSize:12,attributionLogo:true},
+  autoSize:true,layout:{background:{type:ColorType.Solid,color:'#0c1421'},textColor:'#d5d9e3',fontSize:14,attributionLogo:false},
   grid:{vertLines:{visible:false},horzLines:{color:'#253247',style:LineStyle.Dotted}},
-  leftPriceScale:{visible:false},rightPriceScale:{visible:true,borderVisible:false,minimumWidth:57,alignLabels:true,scaleMargins:{top:.14,bottom:.08}},
+  leftPriceScale:{visible:false},rightPriceScale:{visible:true,borderVisible:false,minimumWidth:70,alignLabels:true,scaleMargins:{top:.14,bottom:.08}},
   timeScale:{visible:false,borderColor:'#2b3a50',minBarSpacing:.01,rightOffset:0,timeVisible:false,secondsVisible:false,ignoreWhitespaceIndices:false,enableConflation:false,allowBoldLabels:false},
   crosshair:{mode:CrosshairMode.Normal,vertLine:{color:'#8fa7c1',style:LineStyle.Dashed,labelBackgroundColor:'#344961'},horzLine:{color:'#69819d',style:LineStyle.Dashed,labelBackgroundColor:'#344961'}},
   localization:{locale:lang()==='ko'?'ko-KR':'en-SG',priceFormatter:axisMoney,timeFormatter:time=>typeof time==='number'?new Date(time*1000).toISOString().slice(0,10):String(time)},
